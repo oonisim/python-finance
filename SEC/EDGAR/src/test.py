@@ -1,3 +1,0 @@
-from ibapi import (
-    connection
-)
