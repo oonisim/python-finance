@@ -56,16 +56,10 @@ Full index files for 2006 QTR 3.
 # ================================================================================
 # Setup
 # ================================================================================
-from typing import (
-    List,
-    Dict,
-    Iterable
-)
 import argparse
 import os
 import pathlib
 import logging
-import glob
 import re
 import time
 import random
@@ -85,7 +79,6 @@ from sec_edgar_constant import (
     DIR_XML_XBRL,
 )
 from sec_edgar_common import(
-    filename_basename,
     filename_extension,
     http_get_content,
     split,

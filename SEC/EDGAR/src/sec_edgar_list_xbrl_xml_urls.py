@@ -72,22 +72,14 @@ Full index files for 2006 QTR 3.
 # ================================================================================
 # Setup
 # ================================================================================
-from typing import (
-    List,
-    Dict,
-    Iterable
-)
 import argparse
-import sys
 import os
 import pathlib
 import logging
 import glob
 import re
-import json
 import time
 import random
-import requests
 import ray
 import bs4
 import pandas as pd
@@ -107,8 +99,6 @@ from sec_edgar_constant import (
     DIR_CSV_LIST
 )
 from sec_edgar_common import(
-    filename_basename,
-    filename_extension,
     http_get_content,
     split,
     list_csv_files,
