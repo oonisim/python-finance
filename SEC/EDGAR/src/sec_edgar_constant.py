@@ -1,6 +1,6 @@
 import os
 
-TEST_MODE = True
+TEST_MODE = False
 
 NUM_CPUS = 8
 FS_TYPE_10K = "10-K"
