@@ -47,29 +47,6 @@ other forms containing all types of financial data.45
 # Quarterly filing indices
 * [Accessing EDGAR Data](https://www.sec.gov/os/accessing-edgar-data)
 
-> Using the EDGAR index files  
-Indexes to all public filings are available from 1994Q3 through the present and
-located in the following browsable directories:
-> * https://www.sec.gov/Archives/edgar/daily-index/ — daily index files through the current year; (**DO NOT forget the trailing slash '/'**)
-> * https://www.sec.gov/Archives/edgar/full-index/ — full indexes offer a "bridge" between quarterly and daily indexes, compiling filings from the beginning of the current quarter through the previous business day. At the end of the quarter, the full index is rolled into a static quarterly index.
-> 
-> Each directory and all child sub directories contain three files to assist in automated crawling of these directories. Note that these are not visible through directory browsing.
-> * index.html (the web browser would normally receive these)
-> * index.xml (an XML structured version of the same content)
-> * index.json (a JSON structured vision of the same content)
-> 
-> Four types of indexes are available:
-> * company — sorted by company name
-> * form — sorted by form type
-> * master — sorted by CIK number 
-> * **XBRL** — list of submissions containing XBRL financial files, sorted by CIK number; these include Voluntary Filer Program submissions
-> 
-> The EDGAR indexes list the following information for each filing:
-> * company name
-> * form type
-> * central index key (CIK)
-> * date filed
-> * file name (including folder path)
 
 ## Example
 
@@ -182,7 +159,7 @@ def xml_relative_path_to_save(directory, basename):
 
 
 def xml_absolute_path_to_save(output_xml_directory, directory, basename):
-    f"""
+    """
     Generate the absolute file path to save the XBRL XML. Create directory if required.
     Each XML is saved to {output_xml_directory}/{directory}/{basename}.gz.
 
