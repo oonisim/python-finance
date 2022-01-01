@@ -96,6 +96,7 @@ from bs4 import (
 )
 import Levenshtein as levenshtein
 from sec_edgar_constant import (
+    TEST_MODE,
     NUM_CPUS,
     FS_TYPE_10K,
     FS_TYPE_10Q,
@@ -105,9 +106,15 @@ from sec_edgar_constant import (
     DIR_CSV_INDEX,
     DIR_CSV_LIST
 )
-from sec_edgar_utility import(
-    split,
+from sec_edgar_common import(
+    filename_basename,
+    filename_extension,
     http_get_content,
+    split,
+    list_csv_files,
+    load_from_csv,
+    save_to_csv,
+    output_filepath_for_input_filepath,
 )
 
 
@@ -117,6 +124,14 @@ pd.set_option('display.max_colwidth', None)
 # ================================================================================
 # Utilities
 # ================================================================================
+def input_csv_suffix_default():
+    return ""
+
+
+def output_csv_suffix_default():
+    return "_LIST.gz"
+
+
 def get_command_line_arguments():
     """Get command line arguments"""
     parser = argparse.ArgumentParser(description='argparse test program')
@@ -125,8 +140,16 @@ def get_command_line_arguments():
         help='specify the input csv directory'
     )
     parser.add_argument(
+        '-is', '--input-csv-suffix', type=str, required=False, default=input_csv_suffix_default(),
+        help=f'specify the input filename suffix e.g {input_csv_suffix_default()}'
+    )
+    parser.add_argument(
         '-oc', '--output-csv-directory', type=str, required=False, default=DIR_CSV_LIST,
         help='specify the output csv directory'
+    )
+    parser.add_argument(
+        '-os', '--output-csv-suffix', type=str, required=False, default=output_csv_suffix_default(),
+        help=f'specify the output csv filename suffix e.g {output_csv_suffix_default()}'
     )
     parser.add_argument(
         '-y', '--year', type=int, required=False, help='specify the target year'
@@ -148,7 +171,9 @@ def get_command_line_arguments():
 
     # Mandatory
     input_csv_directory = args['input_csv_directory']
+    input_csv_suffix = args['input_csv_suffix']
     output_csv_directory = args['output_csv_directory']
+    output_csv_suffix = args['output_csv_suffix']
 
     # Optional
     year = str(args['year']) if args['year'] else None
@@ -156,25 +181,43 @@ def get_command_line_arguments():
     num_workers = args['num_workers'] if args['num_workers'] else NUM_CPUS
     log_level = args['log_level'] if args['log_level'] else DEFAULT_LOG_LEVEL
 
-    return input_csv_directory, output_csv_directory, year, qtr, num_workers, log_level
+    return input_csv_directory, \
+           input_csv_suffix, \
+           output_csv_directory, \
+           output_csv_suffix, \
+           year, \
+           qtr, \
+           num_workers, \
+           log_level
 
 
-def csv_absolute_path_to_save(directory, filename):
+def csv_absolute_path_to_save(directory, basename, suffix="_LIST.gz"):
     """Generate the absolute path to the directory in which to save the csv file
     Args:
         directory: Absolute path to the directory to save the file.
-        filename: Filename of the file to save
+        basename: Filename of the file to save
+        suffix: Suffix of the filename e.g. _LIST.gz.
     """
     if not hasattr(csv_absolute_path_to_save, "mkdired"):
         pathlib.Path(directory).mkdir(mode=0o775, parents=True, exist_ok=True)
         setattr(csv_absolute_path_to_save, "mkdired", True)
 
-    destination = os.path.realpath(f"{directory}{os.sep}{filename}_LIST.gz")
+    destination = os.path.realpath(f"{directory}{os.sep}{basename}{suffix}")
     logging.debug("csv_absolute_path_to_save(): Path to save csv is [%s]" % destination)
     return destination
 
 
-def list_csv_files(input_csv_directory, output_csv_directory, year=None, qtr=None):
+def input_filename_pattern(year, qtr, suffix):
+    """Generate glob pattern to find the input files"""
+    pattern = ""
+    pattern += f"{year}" if year else "*"
+    pattern += "QTR"
+    pattern += f"{qtr}" if qtr else "?"
+    pattern += suffix if suffix is not None else ""
+    return pattern
+
+
+def list_csv_files_back(input_csv_directory, output_csv_directory, year=None, qtr=None):
     """List files in the directory
     When year is specified, only matching listing files for the year will be selected.
     When qtr is specified, only match8ng listing files for the quarter will be selected.
@@ -229,7 +272,7 @@ def list_csv_files(input_csv_directory, output_csv_directory, year=None, qtr=Non
     return files
 
 
-def save_to_csv(df, directory, filename):
+def save_to_csv_back(df, directory, filename):
     """Save the XBRL"""
     destination = csv_absolute_path_to_save(directory, filename)
     logging.info("save_to_csv(): saving XBRL dataframe to [%s]..." % destination)
@@ -258,63 +301,35 @@ def index_xml_url(filename):
     Example: From 'edgar/data/1001039/0001193125-10-025949.txt', generate
     'https://sec.gov/Archives/edgar/data/1001039/000119312510025949/index.xml'
     """
+    # --------------------------------------------------------------------------------
+    # The index_xml_url can be None
+    # --------------------------------------------------------------------------------
+    if filename is None or filename == "":
+        logging.warning("index_xml_url(): skip invalid filename [%s]" % filename)
+        return None
+
+    # --------------------------------------------------------------------------------
     # Verify the filename has the "edgar/data/{CIK}/{ACCESSION_NUMBER}.txt" format
+    # where ACCESSION_NUMBER is like 0001047127-14-000006.
+    # --------------------------------------------------------------------------------
     expected = "edgar/data/{CIK}/{ACCESSION_NUMBER}.txt"
     pattern = r"edgar/data/[0-9]+/[0-9]+[-0-9]+\.txt"
     if re.match(pattern, filename):
+        # --------------------------------------------------------------------------------
+        # Generate URL to the directory listing index.xml for the ACCESSION_NUMBER
+        # The result URL format is "http://sec.gov/edgar/data/{CIK}/{ACCESSION}/index.xml
+        # where ACCESSION is created by reoving '-' from ACCESSION_NUMBER.
+        # --------------------------------------------------------------------------------
         url = "/".join([
             EDGAR_BASE_URL,
             filename.rstrip(".txt").replace('-', ''),
             "index.xml"
         ])
     else:
-        logging.error("Expected the format [{}] but got [{}]".format(expected, filename))
+        logging.error("index_xml_url(): expected the format [{}] but got [{}]".format(expected, filename))
         url = None
 
     return url
-
-
-def load_from_csv(filepath, types=[FS_TYPE_10K, FS_TYPE_10K]):
-    """Load a XBRL master index csv into a pandas dataframe.
-    The master index file format must be <YYYY>QTR<N> e.g. 2010QTR1.
-
-    CSV has the format "|CIK|Company Name|Form Type|Date Filed|Filename|"
-    'Filename' column is updated with the URL to the directory listing index.xml.
-
-    Args:
-        filepath: path to a XBRL index file
-        types: Filing types e.g. 10-K
-    Returns:
-        pandas dataframe
-    """
-    logging.info("load_from_csv(): filepath [%s]" % filepath)
-    assert os.path.isfile(filepath) and os.access(filepath, os.R_OK), \
-        f"{filepath} is not a file, cannot read, or does not exist."
-
-    # --------------------------------------------------------------------------------
-    # Load XBRL index CSV file
-    # --------------------------------------------------------------------------------
-    indices = pd.read_csv(
-        filepath,
-        skip_blank_lines=True,
-        header=0,         # The 1st data line after omitting skiprows and blank lines.
-        sep='|',
-        parse_dates=['Date Filed'],
-    )
-
-    # --------------------------------------------------------------------------------
-    # Select filing for the target Form Types e.g. 10-K
-    # --------------------------------------------------------------------------------
-    indices = indices.loc[indices['Form Type'].isin(types)] if types else indices
-    indices.loc[:, 'Form Type'] = indices['Form Type'].astype('category')
-
-    # --------------------------------------------------------------------------------
-    # Update the 'Filename' column with the URL to index.xml
-    # --------------------------------------------------------------------------------
-    indices.loc[:, 'Filename'] = indices['Filename'].apply(index_xml_url)
-    logging.info("load_from_csv(): size of indices [%s]" % len(indices))
-
-    return indices
 
 
 def filing_directory_path(index_xml_url: str):
@@ -350,7 +365,6 @@ def find_xbrl_url_from_html_xml(source, directory):
     Args:
         source: Content of filing directory listing index.xml (as BS4)
         directory: Filing directory path "/Archives/edgar/data/{CIK}/{ACCESSION}/"
-        logger: worker logger
     Returns:
         URL to the XBRL XML if found, else None
     """
@@ -376,7 +390,6 @@ def find_xbrl_url_from_xsd(source, directory):
     Args:
         source: Content of filing directory listing index.xml (as BS4)
         directory: Filing directory path "/Archives/edgar/data/{CIK}/{ACCESSION}/"
-        logger: worker logger
     Returns:
         URL to XBRL XML if found, else None
     """
@@ -441,7 +454,6 @@ def find_xbrl_url_from_auxiliary_regexp(source, directory):
     Args:
         source: Content of filing directory listing index.xml (as BS4)
         directory: Filing directory path "/Archives/edgar/data/{CIK}/{ACCESSION}/"
-        logger: worker logger
     Returns:
         URL to the XBRL XML if found, else None
     """
@@ -470,6 +482,13 @@ def xbrl_url(index_xml_url: str):
     Returns:
         URL to the XBRL file in the filing directory, or None
     """
+    # --------------------------------------------------------------------------------
+    # The index_xml_url can be None
+    # --------------------------------------------------------------------------------
+    if index_xml_url is None or index_xml_url == "":
+        logging.warning("xbrl_url(): skip invalid index_xml_url [%s]" % index_xml_url)
+        return None
+
     # --------------------------------------------------------------------------------
     # URL to directory listing index.xml
     # --------------------------------------------------------------------------------
@@ -574,24 +593,49 @@ def worker(df, log_level: int):
 
     assert len(df) > 0
     logging.info("worker(): task size is %s" % len(df))
+
+    # --------------------------------------------------------------------------------
+    # Update the 'Filename' column with the URL to index.xml
+    # --------------------------------------------------------------------------------
+    df.loc[:, 'Filename'] = df['Filename'].apply(index_xml_url)
     df.loc[:, 'Filename'] = df['Filename'].apply(xbrl_url)
 
     return df
 
 
-def director(df, num_workers: int, log_level: int):
+def director(msg: dict):
     """Director to generate the URL to XBRL XML files in the SEC filing directory.
     Directory listing index.xml provides the list of files in the filing directory.
     Identify the XBRL XML in the directory and generate the URL to the XML.
 
     Args:
-        df: pandas datafrome of XBRL indices
-        num_workers: Number of workers to use
+        msg: message to handle
 
     Returns:
         Pandas dataframe |CIK|Company Name|Form Type|Date Filed|Filename|
         where 'Filename' column set to the URL to XBRL XML.
     """
+    year = msg['year']
+    qtr = msg['qtr']
+    output_csv_directory = msg["output_csv_directory"]
+    output_csv_suffix = msg["output_csv_suffix"]
+    basename = msg['basename']
+    num_workers = msg['num_workers']
+    log_level = msg['log_level']
+
+    assert year.isdecimal() and re.match(r"^[12][0-9]{3}$", year)
+    assert qtr.isdecimal() and re.match(r"^[1-4]$", qtr)
+    assert isinstance(num_workers, int) and num_workers > 0
+    assert log_level in [10, 20, 30, 40]
+
+    # --------------------------------------------------------------------------------
+    # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
+    # --------------------------------------------------------------------------------
+    df = load_from_csv(filepath=filepath, types=[FS_TYPE_10Q, FS_TYPE_10K])
+    assert df is not None and len(df) > 0, "worker(): invalid dataframe"
+    if TEST_MODE:
+        df = df.head(NUM_CPUS)
+
     # --------------------------------------------------------------------------------
     # Split dataframe to handle in parallel
     # --------------------------------------------------------------------------------
@@ -615,10 +659,19 @@ def director(df, num_workers: int, log_level: int):
     # Collect the results
     # --------------------------------------------------------------------------------
     assert len(waits) == num_workers, f"Expected {num_workers} tasks but got {len(waits)}."
-    result = pd.concat(ray.get(waits))
-    result.sort_index(inplace=True)
+    df = pd.concat(ray.get(waits))
+    df.sort_index(inplace=True)
 
-    return result
+    # --------------------------------------------------------------------------------
+    # Save the result dataframe
+    # --------------------------------------------------------------------------------
+    package = {
+        "data": df,
+        "destination": csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix),
+    }
+    save_to_csv(package)
+
+    return df
 
 
 # --------------------------------------------------------------------------------
@@ -629,7 +682,16 @@ if __name__ == "__main__":
     # Command line arguments
     # --------------------------------------------------------------------------------
     args = get_command_line_arguments()
-    input_csv_directory, output_csv_directory, year, qtr, num_workers, log_level = args
+    (
+        input_csv_directory,
+        input_csv_suffix,
+        output_csv_directory,
+        output_csv_suffix,
+        year,
+        qtr,
+        num_workers,
+        log_level
+    ) = args
 
     # --------------------------------------------------------------------------------
     # Logging
@@ -646,26 +708,52 @@ if __name__ == "__main__":
         logging.info("main(): initializing Ray using %s workers..." % num_workers)
         ray.init(num_cpus=num_workers, num_gpus=0, logging_level=log_level)
 
+        # --------------------------------------------------------------------------------
+        # Process XBRL listing files
+        # --------------------------------------------------------------------------------
         for filepath in list_csv_files(
-            input_csv_directory=input_csv_directory, output_csv_directory=output_csv_directory, year=year, qtr=qtr
+                input_csv_directory=input_csv_directory,
+                input_filename_pattern=input_filename_pattern(year, qtr, input_csv_suffix),
+                f_output_filepath_for_input_filepath=output_filepath_for_input_filepath(
+                    output_csv_directory, output_csv_suffix, input_csv_suffix
+                )
         ):
             filename = os.path.basename(filepath)
-            logging.info("main(): processing the listing [%s]..." % filename)
+            logging.info("main(): processing the master index csv [%s]..." % filename)
 
-            result = director(
-                df=load_from_csv(filepath=filepath, types=[FS_TYPE_10Q, FS_TYPE_10K]),
-                num_workers=num_workers,
-                log_level=log_level
-            )
-            failure_df = result.loc[result['Filename'].isna()]
-            success_df = result.loc[result['Filename'].notna()]
-            if len(failure_df) > 0:
-                logging.error("main(): %s records failed." % len(failure_df))
-                logging.error("main(): Failed records:\n%s." % failure_df)
+            # --------------------------------------------------------------------------------
+            # Year/Quarter of the listing is filed to SEC
+            # --------------------------------------------------------------------------------
+            match = re.search("^([1-2][0-9]{3})QTR([1-4]).*$", filename, re.IGNORECASE)
+            year = match.group(1)
+            qtr = match.group(2)
+            basename = f"{year}QTR{qtr}"
+
+            # --------------------------------------------------------------------------------
+            # Process the single index file
+            # --------------------------------------------------------------------------------
+            msg = {
+                "year": year,
+                "qtr": qtr,
+                "output_csv_directory": output_csv_directory,
+                "output_csv_suffix": output_csv_suffix,
+                "basename": basename,
+                "num_workers": num_workers,
+                "log_level": log_level
+            }
+            df = director(msg)
+
+            # --------------------------------------------------------------------------------
+            # List failed records with 'Filepath' column being None as failed to get XBRL
+            # --------------------------------------------------------------------------------
+            if any(df['Filename'].isna()):
+                print("*" * 80)
+                print("-" * 80)
+                print(f"[{len(df['Filename'].isna())}] failed records:\n")
+                print(df[df['Filename'].isna()])
             else:
-                logging.info("main(): processed %s records for %s" % (len(result), filename))
+                logging.info("main(): all [%s] records processed in %s" % (len(df), filename))
 
-            save_to_csv(success_df, directory=output_csv_directory, filename=filename)
     finally:
         # --------------------------------------------------------------------------------
         # Clean up resource
