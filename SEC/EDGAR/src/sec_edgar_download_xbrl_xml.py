@@ -84,8 +84,8 @@ from sec_edgar_common import(
     split,
     list_csv_files,
     load_from_csv,
-    save_to_csv,
     output_filepath_for_input_filepath,
+    director,
 )
 
 
@@ -328,14 +328,6 @@ def worker(msg:dict):
     qtr: str = msg['qtr']
     output_xml_directory = msg["output_xml_directory"]
     log_level:int = msg['log_level']
-    assert df is not None and len(df) > 0, f"Invalid dataframe \n{df}"
-
-    # --------------------------------------------------------------------------------
-    # Add year/qtr/filepath columns
-    # --------------------------------------------------------------------------------
-    df.insert(loc=3, column='Year', value=pd.Categorical([year]* len(df)))
-    df.insert(loc=4, column='Quarter', value=pd.Categorical([qtr]* len(df)))
-    df.insert(loc=len(df.columns), column="Filepath", value=[None]*len(df))
 
     # --------------------------------------------------------------------------------
     #  Logging setup for Ray as in https://docs.ray.io/en/master/ray-logging.html.
@@ -343,10 +335,19 @@ def worker(msg:dict):
     #  Since Python logger module creates a singleton logger per process, loggers should
     #  be configured on per task/actor basis.
     # --------------------------------------------------------------------------------
+    assert log_level in [10, 20, 30, 40]
     logging.basicConfig(level=log_level)
     logging.info("worker(): task size is %s" % len(df))
 
-    failed_indices = []
+    # --------------------------------------------------------------------------------
+    # Add year/qtr/filepath columns
+    # --------------------------------------------------------------------------------
+    assert year.isdecimal() and re.match(r"^[12][0-9]{3}$", year)
+    assert qtr.isdecimal() and re.match(r"^[1-4]$", qtr)
+    df.insert(loc=3, column='Year', value=pd.Categorical([year]* len(df)))
+    df.insert(loc=4, column='Quarter', value=pd.Categorical([qtr]* len(df)))
+    df.insert(loc=len(df.columns), column="Filepath", value=[None]*len(df))
+
     for index, row in df.iterrows():
         # --------------------------------------------------------------------------------
         # Download XBRL XML
@@ -400,25 +401,13 @@ def worker(msg:dict):
     return df
 
 
-def director(msg):
-    """Director to download XBRL XML files from the SEC filing directories.
-    Args:
-        msg: message to handle
-    Returns: Pandas dataframe of failed records
-    """
+def dispatch(msg: dict):
+    filepath = msg['filepath']
     year = msg['year']
     qtr = msg['qtr']
-    output_csv_directory = msg["output_csv_directory"]
-    output_csv_suffix = msg["output_csv_suffix"]
     output_xml_directory = msg["output_xml_directory"]
-    basename = msg['basename']
     num_workers = msg['num_workers']
     log_level = msg['log_level']
-
-    assert year.isdecimal() and re.match(r"^[12][0-9]{3}$", year)
-    assert qtr.isdecimal() and re.match(r"^[1-4]$", qtr)
-    assert isinstance(num_workers, int) and num_workers > 0
-    assert log_level in [10, 20, 30, 40]
 
     # --------------------------------------------------------------------------------
     # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
@@ -427,11 +416,6 @@ def director(msg):
     assert df is not None and len(df) > 0, "worker(): invalid dataframe"
     if TEST_MODE:
         df = df.head(NUM_CPUS)
-
-    # --------------------------------------------------------------------------------
-    # Split dataframe to handle in parallel
-    # --------------------------------------------------------------------------------
-    assignment = split(tasks=df, num=num_workers)
 
     # --------------------------------------------------------------------------------
     # Asynchronously invoke tasks
@@ -444,35 +428,11 @@ def director(msg):
             "output_xml_directory": output_xml_directory,
             "log_level": log_level
         })
-        for task in assignment
+        for task in split(tasks=df, num=num_workers)
     ]
     assert len(futures) == num_workers, f"Expected {num_workers} tasks but got {len(futures)}."
 
-    # --------------------------------------------------------------------------------
-    # Wait for the job completion
-    # --------------------------------------------------------------------------------
-    waits = []
-    while futures:
-        completed, futures = ray.wait(futures)
-        waits.extend(completed)
-
-    # --------------------------------------------------------------------------------
-    # Collect the results
-    # --------------------------------------------------------------------------------
-    assert len(waits) == num_workers, f"Expected {num_workers} tasks but got {len(waits)}."
-    df = pd.concat(ray.get(waits))
-    df.sort_index(inplace=True)
-
-    # --------------------------------------------------------------------------------
-    # Save the result dataframe
-    # --------------------------------------------------------------------------------
-    package = {
-        "data": df,
-        "destination": csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix),
-    }
-    save_to_csv(package)
-
-    return df
+    return futures
 
 
 # --------------------------------------------------------------------------------
@@ -536,6 +496,7 @@ if __name__ == "__main__":
             # Process the single listing file
             # --------------------------------------------------------------------------------
             msg = {
+                "filepath": filepath,
                 "year": year,
                 "qtr": qtr,
                 "output_csv_directory": output_csv_directory,
@@ -545,7 +506,7 @@ if __name__ == "__main__":
                 "num_workers": num_workers,
                 "log_level": log_level
             }
-            df = director(msg)
+            df = director(msg, dispatch, csv_absolute_path_to_save)
 
             # --------------------------------------------------------------------------------
             # List failed records with 'Filepath' column being None as failed to get XBRL

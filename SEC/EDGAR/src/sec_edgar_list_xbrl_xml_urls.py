@@ -76,7 +76,6 @@ import argparse
 import os
 import pathlib
 import logging
-import glob
 import re
 import time
 import random
@@ -103,7 +102,7 @@ from sec_edgar_common import(
     split,
     list_csv_files,
     load_from_csv,
-    save_to_csv,
+    director,
     output_filepath_for_input_filepath,
 )
 
@@ -205,74 +204,6 @@ def input_filename_pattern(year, qtr, suffix):
     pattern += f"{qtr}" if qtr else "?"
     pattern += suffix if suffix is not None else ""
     return pattern
-
-
-def list_csv_files_back(input_csv_directory, output_csv_directory, year=None, qtr=None):
-    """List files in the directory
-    When year is specified, only matching listing files for the year will be selected.
-    When qtr is specified, only match8ng listing files for the quarter will be selected.
-
-    Args:
-        input_csv_directory: path to the directory from where to get the file
-        output_csv_directory: path to the directory where the listings will be saved
-        year: Year to select
-        qtr: Quarter to select
-    Returns: List of flies
-    """
-    assert os.path.isdir(input_csv_directory), f"Not a directory or does not exist: {input_csv_directory}"
-    assert (isinstance(year, str) and re.match(r"^[1-2][0-9]{3}$", year) if year else True), \
-        f"Invalid year {year} of type {type(year)}"
-    assert (isinstance(qtr, str) and re.match(r"^[1-4]$", qtr) if qtr else True), \
-        f"Invalid quarter {qtr} of type {type(qtr)}"
-
-    def is_file_to_process(filepath):
-        """Verify if the filepath points to a file that has not been processed yet.
-        If XBRL file has been already created and exists, then skip the filepath.
-        """
-        source = pathlib.Path(filepath)
-        target = pathlib.Path(csv_absolute_path_to_save(output_csv_directory, os.path.basename(filepath)))
-
-        if source.is_file():
-            if target.exists():
-                logging.info(
-                    "list_csv_files(): directory listing file [%s] already exits. skipping [%s]."
-                    % (target.absolute(), filepath)
-                )
-                return False
-            else:
-                logging.info("list_csv_files(): adding [%s] to handle" % filepath)
-                return True
-        else:
-            logging.info("[%s] does not exist or not a file. skipping." % filepath)
-            return False
-
-    pattern = ""
-    pattern += f"{year}" if year else "*"
-    pattern += "QTR"
-    pattern += f"{qtr}" if qtr else "?"
-
-    logging.info("Listing the files to process in the directory %s ..." % input_csv_directory)
-    files = sorted(
-        filter(is_file_to_process, glob.glob(input_csv_directory + os.sep + pattern)),
-        reverse=True
-    )
-    if files is None or len(files) == 0:
-        logging.info("No files to process in the directory %s" % input_csv_directory)
-
-    return files
-
-
-def save_to_csv_back(df, directory, filename):
-    """Save the XBRL"""
-    destination = csv_absolute_path_to_save(directory, filename)
-    logging.info("save_to_csv(): saving XBRL dataframe to [%s]..." % destination)
-    df.to_csv(
-        destination,
-        sep="|",
-        compression="gzip",
-        header=True,
-        index=False
-    )
 
 
 # ================================================================================
@@ -545,34 +476,18 @@ def xbrl_url(index_xml_url: str):
         return None
 
 
-def test_xbrl_url():
-    # --------------------------------------------------------------------------------
-    # Test the sample filling which has irregular XBRL fliename pattern.
-    # --------------------------------------------------------------------------------
-    SAMPLE_CIK = "62996"
-    SAMPLE_ACC = "000095012310013437"
-    SAMPLE_DIRECTORY_LISTING = "/".join([
-        "https://sec.gov/Archives/edgar/data",
-        SAMPLE_CIK,
-        SAMPLE_ACC,
-        "index.xml",
-    ])
-    print("XBRL XML URL For {}\n{}".format(
-        SAMPLE_DIRECTORY_LISTING,
-        xbrl_url(SAMPLE_DIRECTORY_LISTING)
-    ))
-
-
 @ray.remote(num_returns=1)
-def worker(df, log_level: int):
+def worker(msg):
     """GET XBRL XML and save to a file.
     Args:
-        df: Pandas dataframe |CIK|Company Name|Form Type|Date Filed|Filename|
-            where 'Filename' is the URL to index.xml in the filing directory.
-        log_level: Logging level to use in the worker.
+        msg: message
     Returns: Pandas dataframe where "Filename" column is updated with XBRL XML URL.
     """
+    df = msg["data"]
+    log_level:int = msg['log_level']
     assert df is not None and len(df) > 0, "worker(): invalid dataframe"
+    assert log_level in [10, 20, 30, 40]
+
     # --------------------------------------------------------------------------------
     #  Logging setup for Ray as in https://docs.ray.io/en/master/ray-logging.html.
     #  In Ray, all of the tasks and actors are executed remotely in the worker processes.
@@ -580,88 +495,43 @@ def worker(df, log_level: int):
     #  be configured on per task/actor basis.
     # --------------------------------------------------------------------------------
     logging.basicConfig(level=log_level)
-
-    assert len(df) > 0
     logging.info("worker(): task size is %s" % len(df))
 
     # --------------------------------------------------------------------------------
     # Update the 'Filename' column with the URL to index.xml
     # --------------------------------------------------------------------------------
-    df.loc[:, 'Filename'] = df['Filename'].apply(index_xml_url)
-    df.loc[:, 'Filename'] = df['Filename'].apply(xbrl_url)
-
+    # df.loc[:, 'Filename'] = df['Filename'].apply(index_xml_url)
+    # df.loc[:, 'Filename'] = df['Filename'].apply(xbrl_url)
+    df.loc[:, 'Filename'] = df['Filename'].apply(lambda txt: xbrl_url(index_xml_url(txt)))
     return df
 
 
-def director(msg: dict):
-    """Director to generate the URL to XBRL XML files in the SEC filing directory.
-    Directory listing index.xml provides the list of files in the filing directory.
-    Identify the XBRL XML in the directory and generate the URL to the XML.
-
-    Args:
-        msg: message to handle
-
-    Returns:
-        Pandas dataframe |CIK|Company Name|Form Type|Date Filed|Filename|
-        where 'Filename' column set to the URL to XBRL XML.
-    """
-    year = msg['year']
-    qtr = msg['qtr']
-    output_csv_directory = msg["output_csv_directory"]
-    output_csv_suffix = msg["output_csv_suffix"]
-    basename = msg['basename']
+def dispatch(msg: dict):
+    filepath = msg['filepath']
     num_workers = msg['num_workers']
     log_level = msg['log_level']
-
-    assert year.isdecimal() and re.match(r"^[12][0-9]{3}$", year)
-    assert qtr.isdecimal() and re.match(r"^[1-4]$", qtr)
-    assert isinstance(num_workers, int) and num_workers > 0
-    assert log_level in [10, 20, 30, 40]
 
     # --------------------------------------------------------------------------------
     # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
     # --------------------------------------------------------------------------------
     df = load_from_csv(filepath=filepath, types=[FS_TYPE_10Q, FS_TYPE_10K])
-    assert df is not None and len(df) > 0, "worker(): invalid dataframe"
+    assert df is not None and len(df) > 0, f"Invalid dataframe \n{df}"
     if TEST_MODE:
         df = df.head(NUM_CPUS)
 
     # --------------------------------------------------------------------------------
-    # Split dataframe to handle in parallel
-    # --------------------------------------------------------------------------------
-    assignment = split(tasks=df, num=num_workers)
-
-    # --------------------------------------------------------------------------------
     # Asynchronously invoke tasks
     # --------------------------------------------------------------------------------
-    futures = [worker.remote(task, log_level) for task in assignment]
+    futures = [
+        worker.remote({
+            "data": task,
+            "log_level": log_level
+        })
+        for task in split(tasks=df, num=num_workers)
+    ]
     assert len(futures) == num_workers, f"Expected {num_workers} tasks but got {len(futures)}."
+    return futures
 
-    # --------------------------------------------------------------------------------
-    # Wait for the job completion
-    # --------------------------------------------------------------------------------
-    waits = []
-    while futures:
-        completed, futures = ray.wait(futures)
-        waits.extend(completed)
-
-    # --------------------------------------------------------------------------------
-    # Collect the results
-    # --------------------------------------------------------------------------------
-    assert len(waits) == num_workers, f"Expected {num_workers} tasks but got {len(waits)}."
-    df = pd.concat(ray.get(waits))
-    df.sort_index(inplace=True)
-
-    # --------------------------------------------------------------------------------
-    # Save the result dataframe
-    # --------------------------------------------------------------------------------
-    package = {
-        "data": df,
-        "destination": csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix),
-    }
-    save_to_csv(package)
-
-    return df
 
 
 # --------------------------------------------------------------------------------
@@ -723,6 +593,7 @@ if __name__ == "__main__":
             # Process the single index file
             # --------------------------------------------------------------------------------
             msg = {
+                "filepath": filepath,
                 "year": year,
                 "qtr": qtr,
                 "output_csv_directory": output_csv_directory,
@@ -731,7 +602,7 @@ if __name__ == "__main__":
                 "num_workers": num_workers,
                 "log_level": log_level
             }
-            df = director(msg)
+            df = director(msg, dispatch, csv_absolute_path_to_save)
 
             # --------------------------------------------------------------------------------
             # List failed records with 'Filepath' column being None as failed to get XBRL

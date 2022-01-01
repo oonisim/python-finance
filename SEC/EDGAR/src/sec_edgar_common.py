@@ -3,6 +3,7 @@ import glob
 import logging
 import requests
 import pandas as pd
+import ray
 
 
 logging.basicConfig(level=logging.INFO)
@@ -202,3 +203,47 @@ def save_to_csv(msg):
         raise RuntimeError("save_to_csv(): failed") from e
 
 
+def director(msg, f_dispatch, f_csv_absolute_path_to_save):
+    """Director to dispatch jobs
+    Args:
+        msg: message to handle
+        f_dispatch: function to dispatch jobs
+        f_csv_absolute_path_to_save: funciton to provide the file path to save the result
+    Returns: Pandas dataframe of failed records
+    """
+    basename = msg['basename']
+    output_csv_directory = msg["output_csv_directory"]
+    output_csv_suffix = msg["output_csv_suffix"]
+    num_workers = msg['num_workers']
+    assert isinstance(num_workers, int) and num_workers > 0
+
+    # --------------------------------------------------------------------------------
+    # Dispatch jobs
+    # --------------------------------------------------------------------------------
+    futures = f_dispatch(msg)
+
+    # --------------------------------------------------------------------------------
+    # Wait for the job completion
+    # --------------------------------------------------------------------------------
+    waits = []
+    while futures:
+        completed, futures = ray.wait(futures)
+        waits.extend(completed)
+
+    # --------------------------------------------------------------------------------
+    # Collect the results
+    # --------------------------------------------------------------------------------
+    assert len(waits) == num_workers, f"Expected {num_workers} tasks but got {len(waits)}"
+    df = pd.concat(ray.get(waits))
+    df.sort_index(inplace=True)
+
+    # --------------------------------------------------------------------------------
+    # Save the result dataframe
+    # --------------------------------------------------------------------------------
+    package = {
+        "data": df,
+        "destination": f_csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix),
+    }
+    save_to_csv(package)
+
+    return df
