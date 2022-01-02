@@ -89,13 +89,13 @@ import Levenshtein as levenshtein
 from sec_edgar_constant import (
     TEST_MODE,
     NUM_CPUS,
-    FS_TYPE_10K,
-    FS_TYPE_10Q,
+    SEC_FORM_TYPE_10K,
+    SEC_FORM_TYPE_10Q,
     EDGAR_BASE_URL,
     EDGAR_HTTP_HEADERS,
     DEFAULT_LOG_LEVEL,
-    DIR_CSV_INDEX,
-    DIR_CSV_LIST
+    DIR_DATA_CSV_INDEX,
+    DIR_DATA_CSV_LIST
 )
 from sec_edgar_common import(
     http_get_content,
@@ -125,7 +125,7 @@ def get_command_line_arguments():
     """Get command line arguments"""
     parser = argparse.ArgumentParser(description='argparse test program')
     parser.add_argument(
-        '-ic', '--input-csv-directory', type=str, required=False, default=DIR_CSV_INDEX,
+        '-ic', '--input-csv-directory', type=str, required=False, default=DIR_DATA_CSV_INDEX,
         help='specify the input csv directory'
     )
     parser.add_argument(
@@ -133,7 +133,7 @@ def get_command_line_arguments():
         help=f'specify the input filename suffix e.g {input_csv_suffix_default()}'
     )
     parser.add_argument(
-        '-oc', '--output-csv-directory', type=str, required=False, default=DIR_CSV_LIST,
+        '-oc', '--output-csv-directory', type=str, required=False, default=DIR_DATA_CSV_LIST,
         help='specify the output csv directory'
     )
     parser.add_argument(
@@ -514,7 +514,7 @@ def dispatch(msg: dict):
     # --------------------------------------------------------------------------------
     # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
     # --------------------------------------------------------------------------------
-    df = load_from_csv(filepath=filepath, types=[FS_TYPE_10Q, FS_TYPE_10K])
+    df = load_from_csv(filepath=filepath, types=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K])
     assert df is not None and len(df) > 0, f"Invalid dataframe \n{df}"
     if TEST_MODE:
         df = df.head(NUM_CPUS)

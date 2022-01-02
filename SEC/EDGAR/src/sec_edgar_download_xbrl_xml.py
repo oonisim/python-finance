@@ -70,13 +70,13 @@ import pandas as pd
 from sec_edgar_constant import (
     TEST_MODE,
     NUM_CPUS,
-    FS_TYPE_10K,
-    FS_TYPE_10Q,
+    SEC_FORM_TYPE_10K,
+    SEC_FORM_TYPE_10Q,
     EDGAR_HTTP_HEADERS,
     DEFAULT_LOG_LEVEL,
-    DIR_CSV_LIST,
-    DIR_CSV_XBRL,
-    DIR_XML_XBRL,
+    DIR_DATA_CSV_LIST,
+    DIR_DATA_CSV_XBRL,
+    DIR_DATA_XML_XBRL,
 )
 from sec_edgar_common import(
     filename_extension,
@@ -107,7 +107,7 @@ def get_command_line_arguments():
     """Get command line arguments"""
     parser = argparse.ArgumentParser(description='argparse test program')
     parser.add_argument(
-        '-ic', '--input-csv-directory', type=str, required=False, default=DIR_CSV_LIST,
+        '-ic', '--input-csv-directory', type=str, required=False, default=DIR_DATA_CSV_LIST,
         help='specify the input data directory'
     )
     parser.add_argument(
@@ -115,7 +115,7 @@ def get_command_line_arguments():
         help=f'specify the input filename suffix e.g {input_csv_suffix_default()}'
     )
     parser.add_argument(
-        '-oc', '--output-csv-directory', type=str, required=False, default=DIR_CSV_XBRL,
+        '-oc', '--output-csv-directory', type=str, required=False, default=DIR_DATA_CSV_XBRL,
         help='specify the output data directory to save the csv file (not xml)'
     )
     parser.add_argument(
@@ -123,7 +123,7 @@ def get_command_line_arguments():
         help=f'specify the output csv filename suffix e.g {output_csv_suffix_default()}'
     )
     parser.add_argument(
-        '-ox', '--output-xml-directory', type=str, required=False, default=DIR_XML_XBRL,
+        '-ox', '--output-xml-directory', type=str, required=False, default=DIR_DATA_XML_XBRL,
         help='specify the output data directory to save the xml file (not csv)'
     )
     parser.add_argument(
@@ -265,7 +265,7 @@ def get_xml(url):
 
 
 def save_to_xml(msg):
-    """Save the XBRL XML to the path relative to DIR_XML_XBRL.
+    """Save the XBRL XML to the path relative to DIR_DATA_XML_XBRL.
 
     Args:
         msg: message including the content data, directory to save it as filename
@@ -412,7 +412,7 @@ def dispatch(msg: dict):
     # --------------------------------------------------------------------------------
     # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
     # --------------------------------------------------------------------------------
-    df = load_from_csv(filepath=filepath, types=[FS_TYPE_10Q, FS_TYPE_10K])
+    df = load_from_csv(filepath=filepath, types=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K])
     assert df is not None and len(df) > 0, "worker(): invalid dataframe"
     if TEST_MODE:
         df = df.head(NUM_CPUS)

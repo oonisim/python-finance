@@ -1,18 +1,57 @@
 import os
 
-TEST_MODE = False
 
-NUM_CPUS = 8
-FS_TYPE_10K = "10-K"
-FS_TYPE_10Q = "10-Q"
+# --------------------------------------------------------------------------------
+# SEC
+# --------------------------------------------------------------------------------
+# SEC EDGAR
 EDGAR_BASE_URL = "https://sec.gov/Archives"
 EDGAR_HTTP_HEADERS = {"User-Agent": "Company Name myname@company.com"}
+# SEC Form Types
+SEC_FORM_TYPE_10K = "10-K"
+SEC_FORM_TYPE_10Q = "10-Q"
+
+# --------------------------------------------------------------------------------
+# GAAP
+# --------------------------------------------------------------------------------
+FS_BS = "bs"                        # Financial Statement - Balance Sheet
+FS_PL = "pl"                        # Financial Statement - Income Statement (PL)
+FS_CF = "cf"                        # Financial Statement - Cash Flow Statement
+FS_ITEM_TYPE_CREDIT = "credit"      # e.g Revenues
+FS_ITEM_TYPE_DEBIT = "debit"        # e.g Long Term Debt
+FS_ITEM_TYPE_METRIC = "metric"      # e.g EPS, P/E
+FS_ITEM_TYPE_FACT = "fact"          # e.g Shared Outstandings
+
+# Representatives
+# Company can use different item, e.g. the final income for the period can be either:
+# |us-gaap:profitloss   |usd|181847000|
+# |us-gaap:netincomeloss|usd|180854000|
+# To mark which one to use as the "final income", mark the row as "income".
+FS_ITEM_REP_REVENUE = "revenues"
+FS_ITEM_REP_INCOME = "income"
+FS_ITEM_REP_COR = "cor"             # Cost of Revenue
+FS_ITEM_REP_COGS = "cogs"           # Cost of Goods Sold
+FS_ITEM_REP_RD = "r_and_d"          # R/D Expeense
+FS_ITEM_REP_GROSS_PROFIT = "profit"
+FS_ITEM_REP_SGA = "sga"             # Sales and Administrative Expense
+FS_ITEM_REP_OCO = "oco"             # Other Cost and Expense Operating
+
+# --------------------------------------------------------------------------------
+# Platform
+# --------------------------------------------------------------------------------
 DEFAULT_LOG_LEVEL = 20  # INFO
+NUM_CPUS = 8
+TEST_MODE = False
 
-
+# --------------------------------------------------------------------------------
+# Directories
+# Name represents the directory structure, e.g. DIR_DATA_CSV_INDEX corresponds to
+# "${DIR}/data/csv/index" where DIR_DATA is the root directory for data
+# --------------------------------------------------------------------------------
 DIR = os.path.dirname(os.path.realpath(__file__))
-DIR_CSV_INDEX = os.path.realpath(f"{DIR}/../data/csv/index")
-DIR_CSV_LIST = os.path.realpath(f"{DIR}/../data/csv/listing")
-DIR_CSV_XBRL = os.path.realpath(f"{DIR}/../data/csv/xbrl")
-DIR_XML_XBRL = os.path.realpath(f"{DIR}/../data/xml/xbrl")
-
+# Data
+DIR_DATA = os.path.realpath(f"{DIR}/../data/")
+DIR_DATA_CSV_INDEX = os.path.realpath(f"{DIR_DATA}/csv/index")
+DIR_DATA_CSV_LIST = os.path.realpath(f"{DIR_DATA}/csv/listing")
+DIR_DATA_CSV_XBRL = os.path.realpath(f"{DIR_DATA}/csv/xbrl")
+DIR_DATA_XML_XBRL = os.path.realpath(f"{DIR_DATA}/xml/xbrl")
