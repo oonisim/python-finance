@@ -27,14 +27,25 @@ FS_ITEM_TYPE_FACT = "fact"          # e.g Shared Outstandings
 # |us-gaap:profitloss   |usd|181847000|
 # |us-gaap:netincomeloss|usd|180854000|
 # To mark which one to use as the "final income", mark the row as "income".
-FS_ITEM_REP_REVENUE = "revenues"
-FS_ITEM_REP_INCOME = "income"
-FS_ITEM_REP_COR = "cor"             # Cost of Revenue
-FS_ITEM_REP_COGS = "cogs"           # Cost of Goods Sold
-FS_ITEM_REP_RD = "r_and_d"          # R/D Expeense
-FS_ITEM_REP_GROSS_PROFIT = "profit"
-FS_ITEM_REP_SGA = "sga"             # Sales and Administrative Expense
-FS_ITEM_REP_OCO = "oco"             # Other Cost and Expense Operating
+FS_ITEM_REP_SHARES_OUTSTANDING = "shares_outstanding"
+# PL
+FS_ITEM_REP_REVENUE = "revenue"
+FS_ITEM_REP_OP_COST = "operating_cost"                 # Operating Cost
+FS_ITEM_REP_OP_INCOME = "operating_income"
+FS_ITEM_REP_GROSS_PROFIT = "gross_profit"
+FS_ITEM_REP_OPEX_RD = "operating_expense_rd"              # R/D Expeense
+FS_ITEM_REP_OPEX_SGA = "operating_expense_sga"                 # Sales and Administrative Expense
+FS_ITEM_REP_OPEX = "operating_expense"
+FS_ITEM_REP_NET_INCOME = "net_income"
+FS_ITEM_REP_EPS = "eps"
+# BS
+FS_ITEM_REP_CASH = "cash_and_equivalent"
+FS_ITEM_REP_CURRENT_ASSETS = "current_assets"
+FS_ITEM_REP_TOTAL_ASSETS = "total_assets"
+FS_ITEM_REP_CURRENT_LIABILITIES = "current_liabilities"
+FS_ITEM_REP_LIABILITIES = "total_liabilities"
+FS_ITEM_REP_SE = "stockholders_equity"
+FS_ITEM_REP_TOTAL_EQUITY = "total_equity"
 
 # --------------------------------------------------------------------------------
 # Platform
