@@ -167,6 +167,8 @@ class EdgarBase:
         # Pandas
         # --------------------------------------------------------------------------------
         pd.set_option('display.max_colwidth', None)
+        pd.set_option('display.float_format', lambda x: ('%f' % x).rstrip('0').rstrip('.'))
+        pd.set_option('display.colheader_justify', 'center')
 
     # ================================================================================
     # Utility
