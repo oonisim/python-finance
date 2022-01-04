@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 
 # --------------------------------------------------------------------------------
@@ -51,7 +52,8 @@ FS_ITEM_REP_TOTAL_EQUITY = "total_equity"
 # Platform
 # --------------------------------------------------------------------------------
 DEFAULT_LOG_LEVEL = 20  # INFO
-NUM_CPUS = 8
+NUM_CPUS = multiprocessing.cpu_count()
+MAX_NUM_WORKERS = NUM_CPUS * 3
 
 # --------------------------------------------------------------------------------
 # Directories

@@ -106,6 +106,9 @@ import argparse
 import logging
 import os
 import re
+from typing import (
+    Callable
+)
 
 import pandas as pd
 import ray
@@ -114,11 +117,11 @@ from sec_edgar_common import (
     list_csv_files,
     load_from_csv,
     split,
-    output_filepath_for_input_filepath,
     save_to_csv,
 )
 from sec_edgar_constant import (
     NUM_CPUS,
+    MAX_NUM_WORKERS,
     SEC_FORM_TYPE_10K,
     SEC_FORM_TYPE_10Q,
     DEFAULT_LOG_LEVEL,
@@ -129,6 +132,44 @@ from sec_edgar_constant import (
 
 
 class EdgarBase:
+    # ================================================================================
+    # Init
+    # ================================================================================
+    def __init__(self):
+        # --------------------------------------------------------------------------------
+        # Parameters
+        # --------------------------------------------------------------------------------
+        args = self.get_command_line_arguments()
+        self.args = args
+
+        # SEC Filing filter
+        self.input_csv_directory = args['input_csv_directory']
+        self.input_csv_suffix = args['input_csv_suffix']
+        self.output_csv_directory = args['output_csv_directory']
+        self.output_csv_suffix = args['output_csv_suffix']
+        self.output_xml_directory = args['output_xml_directory']
+        # Filing filter
+        self.year = str(args['year']) if args['year'] else None
+        self.qtr = str(args['qtr']) if args['qtr'] else None
+        self.form_types = str(args['form_types'])
+        # Platform configurations
+        self.num_workers = args['num_workers']
+        self.log_level = args['log_level']
+        self.test_mode = args["test_mode"]
+
+        # --------------------------------------------------------------------------------
+        # Logging
+        # --------------------------------------------------------------------------------
+        logging.basicConfig(level=args["test_mode"])
+
+        # --------------------------------------------------------------------------------
+        # Pandas
+        # --------------------------------------------------------------------------------
+        pd.set_option('display.max_colwidth', None)
+
+    # ================================================================================
+    # Utility
+    # ================================================================================
     @staticmethod
     def input_csv_suffix_default() -> str:
         raise NotImplementedError("TBD")
@@ -140,6 +181,10 @@ class EdgarBase:
     def get_command_line_arguments(self):
         """Get configurable parameters from the command line"""
         parser = argparse.ArgumentParser(description='EDGAR program')
+
+        # --------------------------------------------------------------------------------
+        # Data sources
+        # --------------------------------------------------------------------------------
         parser.add_argument(
             '-ic', '--input-csv-directory', type=str, required=False,
             default=DIR_DATA_CSV_LIST,
@@ -165,6 +210,9 @@ class EdgarBase:
             default=DIR_DATA_XML_XBRL,
             help='specify the output data directory to save the xml file (not csv)'
         )
+        # --------------------------------------------------------------------------------
+        # SEC Filing filter
+        # --------------------------------------------------------------------------------
         parser.add_argument(
             '-y', '--year', type=int, required=False,
             default=None,
@@ -180,6 +228,10 @@ class EdgarBase:
             default=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K],
             help='specify the form types to select e.g. 10-Q, 10-K'
         )
+
+        # --------------------------------------------------------------------------------
+        # Platform configurations
+        # --------------------------------------------------------------------------------
         parser.add_argument(
             '-n', '--num-workers', type=int, required=False,
             default=NUM_CPUS,
@@ -192,33 +244,71 @@ class EdgarBase:
         )
         parser.add_argument(
             '-t', '--test-mode', action="store_true",
-            help='specify to use the test mode'
+            help='specify to enable the test mode'
         )
 
         # --------------------------------------------------------------------------------
         # Validations
         # --------------------------------------------------------------------------------
         args = vars(parser.parse_args())
+
+        # Directories
+        args['input_csv_directory'] = os.path.realpath(args['input_csv_directory'])
+        args['output_csv_directory'] = os.path.realpath(args['output_csv_directory'])
+        args['output_xml_directory'] = os.path.realpath(args['output_xml_directory'])
+        assert os.path.isdir(args['input_csv_directory'])
+        # Valid output directory (cannot check until the directory is created)
+        # assert os.path.isdir(args['output_csv_directory'])
+        # Valid output directory (cannot check until the directory is created)
+        # assert os.path.isdir(args['output_csv_directory'])
+
+        # Form types
         assert all([
             form in [SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K]
             for form in args['form_types']
         ]), "Invalid form type(s) in [%s]" % args['form_types']
+
+        # Number of workers
+        assert 0 < args['num_workers'] < MAX_NUM_WORKERS, \
+            f"Invalid number of workers {args['num_workers']}"
+
+        # Test mode
         assert isinstance(args["test_mode"], bool), \
             f"Invalid test_mode {type(args['test_mode'])}"
 
         return args
 
+    def input_filename_pattern(self) -> str:
+        """Generate glob pattern to find the input files"""
+        pattern = ""
+        pattern += f"{self.year}" if self.year else "*"
+        pattern += "QTR"
+        pattern += f"{self.qtr}" if self.qtr else "?"
+        pattern += self.input_csv_suffix if self.input_csv_suffix is not None else ""
+        return pattern
+
     @staticmethod
-    def input_filename_pattern(year: str, qtr: str, suffix: str) -> str:
+    def f_csv_absolute_path_to_save_for_input_filepath(
+            output_csv_directory, output_csv_suffix, input_csv_suffix
+    ) -> Callable:
+        """
+        Generate the function to provide the absolute path to the output file
+        to be created for the input path.
+
+        csv_absolute_path_to_save() does not know the suffix of input file,
+        hence instead of using csv_absolute_path_to_save(), use this one.
+        """
         raise NotImplementedError("TBD")
 
     @staticmethod
     def csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix):
         raise NotImplementedError("TBD")
 
-    @staticmethod
+    # ================================================================================
+    # Processing
+    # ================================================================================
     @ray.remote(num_returns=1)
-    def worker(msg: dict) -> pd.DataFrame:
+    def worker(self, msg: dict) -> pd.DataFrame:
         """Worker task to execute based on the instruction message
         Args:
             msg: task instruction message
@@ -233,7 +323,7 @@ class EdgarBase:
         filepath = msg['filepath']
         num_workers = msg['num_workers']
         form_types = msg['form_types']
-        test_mopde = msg['test_mode']
+        test_mode = msg['test_mode']
 
         # --------------------------------------------------------------------------------
         # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
@@ -244,13 +334,18 @@ class EdgarBase:
         # --------------------------------------------------------------------------------
         # Test debug configurations
         # --------------------------------------------------------------------------------
-        df = df.head(NUM_CPUS) if test_mopde else df
+        df = df.head(NUM_CPUS) if test_mode else df
 
         # --------------------------------------------------------------------------------
         # Asynchronously invoke tasks
+        # NOTE: Need to pass "self" as worker.remote(self, msg) not worker.remote(msg).
+        # Python runtime automatically insert self if it is an instance method, but
+        # Ray "remote" proxy is a function, not class instance method.
+        # Alternatively make the remote method as static, however you cannot access
+        # instance/class members.
         # --------------------------------------------------------------------------------
         futures = [
-            self.worker.remote(self.compose_package_to_dispatch_to_worker(msg, task))
+            self.worker.remote(self, self.compose_package_to_dispatch_to_worker(msg, task))
             for task in split(tasks=df, num=num_workers)
         ]
         assert len(futures) == num_workers, f"Expected {num_workers} tasks but got {len(futures)}."
@@ -271,7 +366,6 @@ class EdgarBase:
         output_csv_directory = msg["output_csv_directory"]
         output_csv_suffix = msg["output_csv_suffix"]
         num_workers = msg['num_workers']
-        assert isinstance(num_workers, int) and num_workers > 0
 
         # --------------------------------------------------------------------------------
         # Dispatch jobs
@@ -309,32 +403,10 @@ class EdgarBase:
 
         return df
 
-    # --------------------------------------------------------------------------------
+    # ================================================================================
     # Main
-    # --------------------------------------------------------------------------------
+    # ================================================================================
     def main(self):
-        # --------------------------------------------------------------------------------
-        # Command line arguments
-        # --------------------------------------------------------------------------------
-        args:dict = self.get_command_line_arguments()
-
-        # Mandatory
-        input_csv_directory = args['input_csv_directory']
-        input_csv_suffix = args['input_csv_suffix']
-        output_csv_directory = args['output_csv_directory']
-        output_csv_suffix = args['output_csv_suffix']
-
-        # Optional
-        year = str(args['year'])
-        qtr = str(args['qtr'])
-        num_workers = args['num_workers']
-        log_level = args['log_level']
-
-        # --------------------------------------------------------------------------------
-        # Logging
-        # --------------------------------------------------------------------------------
-        logging.basicConfig(level=log_level)
-
         # --------------------------------------------------------------------------------
         # XBRL XML logic
         # --------------------------------------------------------------------------------
@@ -342,34 +414,42 @@ class EdgarBase:
             # --------------------------------------------------------------------------------
             # Setup Ray
             # --------------------------------------------------------------------------------
-            logging.info("main(): initializing Ray using %s workers..." % num_workers)
-            ray.init(num_cpus=num_workers, num_gpus=0, logging_level=log_level)
+            logging.info("main(): initializing Ray using %s workers..." % self.num_workers)
+            ray.init(num_cpus=self.num_workers, num_gpus=0, logging_level=self.log_level)
 
             # --------------------------------------------------------------------------------
-            # Process XBRL listing files
+            # Process input files
             # --------------------------------------------------------------------------------
             for filepath in list_csv_files(
-                    input_csv_directory=input_csv_directory,
-                    input_filename_pattern=self.input_filename_pattern(year, qtr, input_csv_suffix),
-                    f_output_filepath_for_input_filepath=output_filepath_for_input_filepath(
-                        output_csv_directory, output_csv_suffix, input_csv_suffix
+                    input_csv_directory=self.input_csv_directory,
+                    input_filename_pattern=self.input_filename_pattern(),
+                    f_output_filepath_for_input_filepath=self.f_csv_absolute_path_to_save_for_input_filepath(
+                        self.output_csv_directory, self.output_csv_suffix, self.input_csv_suffix
                     )
             ):
                 filename = os.path.basename(filepath)
-                logging.info("main(): processing the listing csv [%s]..." % filename)
+                logging.info("main(): processing the input csv [%s]..." % filename)
 
                 # --------------------------------------------------------------------------------
-                # Year/Quarter of the listing is filed to SEC
+                # Year/Quarter of the filing from the filename
                 # --------------------------------------------------------------------------------
                 match = re.search("^([1-2][0-9]{3})QTR([1-4]).*$", filename, re.IGNORECASE)
-                year = match.group(1)
-                qtr = match.group(2)
-                basename = f"{year}QTR{qtr}"
+                assert len(match.groups()) == len(["year", "qtr"]), \
+                    "Insufficient matches: expected %s got %s in %s" % \
+                    (len(["year", "qtr"]), len(match.groups()), filename)
+                year_from_filename = match.group(1)
+                qtr_from_filename = match.group(2)
+                basename = f"{year_from_filename}QTR{qtr_from_filename}"
 
                 # --------------------------------------------------------------------------------
-                # Direct the jobs by workers
+                # Execute
                 # --------------------------------------------------------------------------------
-                msg = args.copy()
+                msg = self.args.copy()
+
+                # NOTE: year/qtr in the command line argument is to filter the input files only.
+                # Hence, overwrite them with the year/qtr of the filing.
+                msg['year'] = year_from_filename
+                msg['qtr'] = qtr_from_filename
                 msg['filepath'] = filepath
                 msg['filename'] = filename
                 msg['basename'] = basename

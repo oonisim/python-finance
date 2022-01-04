@@ -1,67 +1,18 @@
 #!/usr/bin/env python
-"""
-## Objective
-Navigate through the EDGAR XBRL listings to generate the URLs to XBRL XML files.
-
-## XBRL master index file
-https://www.sec.gov/Archives/edgar/full-index stores the master index files.
-[xbrl.gz] master index file for  TXT file in XBRL version
-
-[Format]
-|CIK    |Company Name|Form Type|Filing Date|TXT Path                                   |
-|-------|------------|---------|-----------|-------------------------------------------|
-|1002047|NetApp, Inc.|10-Q     |2020-02-18 |edgar/data/1002047/0001564590-20-005025.txt|
-
-[Background]
-Previously, XBRL was not introduced or not mandatory, hence the documents are
-in HTML format and the TXT is the all-in-one including all the filing data
-sectioned by <DOCUMENT>.
-
-After the introduction of XBRL and recent mandates, the XBRL master index points
-to the TXT file which is al-in-one including all the filing data in XML format.
-However, it is not straight-forward to parse the TXT for XBRL and there is
-.xml file which has all the XML data only.
-
-Hence, need to identify the URL to XBRL XML. However, the format fo the filename
-is not consistent, e.g. <name>_htm.xml, <name>.xml. Needs to identify the XML
-filename, then create the UR.
-
-## EDGAR Directory Listing
-Each filing directory provides the listing which lists all the files in the
-directory either as index.html, index.json, or index.xml. Parse the index.xml
-to identify the XBRL XML file.
-
-https://sec.gov/Archives/edgar/full-index/${YEAR}/${QTR}/${ACCESSION}/index.xml
-
-# EDGAR
-* Investopedia -[Where Can I Find a Company's Annual Report and Its SEC Filings?]
-(https://www.investopedia.com/ask/answers/119.asp)
-
-> If you want to dig deeper and go beyond the slick marketing version of the annual
-report found on corporate websites, you'll have to search through required filings
-made to the Securities and Exchange Commission. All publicly-traded companies in
-the U.S. must file regular financial reports with the SEC. These filings include
-the annual report (known as the 10-K), quarterly report (10-Q), and a myriad of
-other forms containing all types of financial data.45
-
-# Quarterly filing indices
-* [Accessing EDGAR Data](https://www.sec.gov/os/accessing-edgar-data)
-
-
-## Example
-
-Full index files for 2006 QTR 3.
-<img src="../image/edgar_full_index_quarter_2006QTR3.png" align="left" width="800"/>
+"""Navigate through the EDGAR XBRL listings to generate the URLs to XBRL XML files.
 """
 import gzip
 import logging
-# ================================================================================
-# Setup
-# ================================================================================
 import os
 import pathlib
 import random
 import re
+# ================================================================================
+# Setup
+# ================================================================================
+from typing import (
+    Callable
+)
 
 import pandas as pd
 import ray
@@ -81,10 +32,18 @@ from sec_edgar_constant import (
 pd.set_option('display.max_colwidth', None)
 
 
-# ================================================================================
-# Utilities
-# ================================================================================
 class EdgarXBRL(EdgarBase):
+    # ================================================================================
+    # Init
+    # ================================================================================
+    def __init__(self):
+        super().__init__()
+
+        self.output_csv_directory_created = False
+
+    # ================================================================================
+    # Utilities
+    # ================================================================================
     @staticmethod
     def input_csv_suffix_default():
         return "_LIST.gz"
@@ -92,6 +51,50 @@ class EdgarXBRL(EdgarBase):
     @staticmethod
     def output_csv_suffix_default():
         return "_XBRL.gz"
+
+    def input_filename_pattern(self):
+        """Generate glob pattern to find the input files"""
+        pattern = ""
+        pattern += f"{self.year}" if self.year else "*"
+        pattern += "QTR"
+        pattern += f"{self.qtr}" if self.qtr else "?"
+        pattern += self.input_csv_suffix if self.input_csv_suffix else ""
+        return pattern
+
+    @staticmethod
+    def f_csv_absolute_path_to_save_for_input_filepath(
+            output_csv_directory, output_csv_suffix, input_csv_suffix
+    ) -> Callable:
+        """
+        Generate the function to provide the path to the output file
+        to be created for the input path.
+
+        csv_absolute_path_to_save() does not know the suffix of input file,
+        hence instead of using csv_absolute_path_to_save(), use this one.
+
+        Args:
+            output_csv_directory: Directory to save the output CSV files
+            output_csv_suffix: Suffix of the output CSV file e.g. _XBRL.gz
+            input_csv_suffix: Suffix of the input CSV file e.g. _LIST.gz
+        Returns: Function to generate the output filepath
+        """
+        def f(input_filepath):
+            """
+            Generate the absolute path to the output CSV to save for the input CSV filepath
+            Args:
+                input_filepath: Absolute path to the input csv file
+            Returns: Absolute path to the output CSV file to save
+            """
+            filename = os.path.basename(input_filepath)
+            assert filename.endswith(input_csv_suffix), \
+                "input filepath {} must ends with suffix {}".format(filename, input_csv_suffix)
+
+            base = filename.rstrip(input_csv_suffix)
+            assert len(base) > 0, "base [{}] must have {{YYYY}}QTR{{Q}} format".format(base)
+
+            return f"{output_csv_directory}{os.sep}{base}{output_csv_suffix}"
+
+        return f
 
     @staticmethod
     def xml_relative_path_to_save(directory: str, basename: str):
@@ -136,22 +139,16 @@ class EdgarXBRL(EdgarBase):
 
         Returns: Absolute file path
         """
-        if not hasattr(self.csv_absolute_path_to_save, "mkdired"):
-            pathlib.Path(directory).mkdir(mode=0o775, parents=True, exist_ok=True)
-            setattr(self.csv_absolute_path_to_save, "mkdired", True)
+        if not self.output_csv_directory_created:
+            try:
+                pathlib.Path(directory).mkdir(mode=0o775, parents=True, exist_ok=True)
+                self.output_csv_directory_created = True
+            except OSError as e:
+                logging.error(f"csv_absolute_path_to_save(): mkdir [%s] failed due to [%s]" % (directory, e))
+                raise RuntimeError("csv_absolute_path_to_save() failed.") from e
 
         absolute = os.path.realpath(f"{directory}{os.sep}{basename}{suffix}")
         return absolute
-
-    @staticmethod
-    def input_filename_pattern(year: str, qtr: str, suffix: str):
-        """Generate glob pattern to find the input files"""
-        pattern = ""
-        pattern += f"{year}" if year else "*"
-        pattern += "QTR"
-        pattern += f"{qtr}" if qtr else "?"
-        pattern += suffix if suffix is not None else ""
-        return pattern
 
     @staticmethod
     def get_xml(url):
@@ -228,13 +225,22 @@ class EdgarXBRL(EdgarBase):
     @ray.remote(num_returns=1)
     def worker(self, msg: dict) -> pd.DataFrame:
         """
+        [NOTE]: Need to pass "self" as worker.remote(self, msg) not worker.remote(msg).
+        Python runtime automatically insert self if it is an instance method, but
+        Ray "remote" proxy is a function, not class instance method.
+        Alternatively make the remote method as static, however you cannot access
+        instance/class members.
+
         1. GET XBRL XML from the filing directory and save to a file.
         2. Update the listing dataframe with the year, qtr, path to the saved XBRL XML.
            Set None to the path column when failed to get the XBRL XML.
 
-        The incoming dataframe has the format where 'Filename' is the URL to XBRL XML
-        in the filing directory.
+        The incoming dataframe has the format:
         |CIK|Company Name|Form Type|Date Filed|Filename|
+
+        'Filename' is the URL to XBRL XML in the filing directory with the format:
+        https://sec.gov/Archives/edgar/data/{cik}}/{accession}}/{filename}
+        https://sec.gov/Archives/edgar/data/1000697/000095012310017583/wat-20091231.xml
 
         Args:
             msg: Dictionary to data package of format {
@@ -243,7 +249,6 @@ class EdgarXBRL(EdgarBase):
                     "qtr": <quarter of the filing>,
                     "log_level": <logging level>
             }
-
         Returns: Updated dataframe
         """
         df = msg["data"]
@@ -263,12 +268,12 @@ class EdgarXBRL(EdgarBase):
         logging.info("worker(): task size is %s" % len(df))
 
         # --------------------------------------------------------------------------------
-        # Add year/qtr/filepath columns
+        # Insert Year, Quarter columns before "Filename", and "Filepath" at the end
         # --------------------------------------------------------------------------------
         assert year.isdecimal() and re.match(r"^[12][0-9]{3}$", year)
         assert qtr.isdecimal() and re.match(r"^[1-4]$", qtr)
-        df.insert(loc=3, column='Year', value=pd.Categorical([year]* len(df)))
-        df.insert(loc=4, column='Quarter', value=pd.Categorical([qtr]* len(df)))
+        df.insert(loc=df.columns.get_loc("Filename"), column='Year', value=pd.Categorical([year]*len(df)))
+        df.insert(loc=df.columns.get_loc("Year")+1, column='Quarter', value=pd.Categorical([qtr]*len(df)))
         df.insert(loc=len(df.columns), column="Filepath", value=[None]*len(df))
 
         for index, row in df.iterrows():
@@ -289,7 +294,8 @@ class EdgarXBRL(EdgarBase):
                 accession = elements[-2]
                 cik = elements[-3]
                 assert str(row['CIK']) == cik, \
-                    f"CIK [{row['CIK']})] must match CIK part [{cik}] in url {url}"
+                    "CIK [%s] must match CIK part [%s] in url [%s] in the row [%s]" % \
+                    (row['CIK'], cik, url, row)
 
                 # Note: The directory is relative path, NOT absolute
                 directory = f"{cik}{os.sep}{accession}"
@@ -311,13 +317,13 @@ class EdgarXBRL(EdgarBase):
                         % (index, path_to_saved_xml)
                     )
                 else:
-                    logging.debug(
-                        "worker(): not updated the dataframe[%s, 'Filepath'] as saving has failed."
+                    logging.error(
+                        "worker(): not updated the dataframe[%s, 'Filepath'] as saving XML has failed."
                         % index
                     )
             else:
-                logging.debug(
-                    "worker(): not updated the dataframe[%s, 'Filepath'] as failed to get XBRL XML"
+                logging.error(
+                    "worker(): not updated the dataframe[%s, 'Filepath'] as failed to get XBRL XML."
                     % index
                 )
 

@@ -85,29 +85,14 @@ def http_get_content(url, headers):
     raise RuntimeError("HTTP to SEC EDGAR failed") from error
 
 
-def output_filepath_for_input_filepath(output_csv_directory, output_csv_suffix, input_csv_suffix):
-    """Generate output filepath for the input epath"""
-    def f(input_filepath):
-        filename = os.path.basename(input_filepath)
-        assert filename.endswith(input_csv_suffix), \
-            "input filepath {} must ends with suffix {}".format(filename, input_csv_suffix)
-
-        base = filename.rstrip(input_csv_suffix)
-        assert len(base) > 0, "base [{}] must have {{YYYY}}QTR{{Q}} format".format(base)
-
-        return f"{output_csv_directory}{os.sep}{base}{output_csv_suffix}"
-
-    return f
-
-
 def list_csv_files(
         input_csv_directory,
         input_filename_pattern,
         f_output_filepath_for_input_filepath
     ):
-    """List files in the directory
+    """List files in the directory that are to be processed.
     When year is specified, only matching listing files for the year will be selected.
-    When qtr is specified, only match8ng listing files for the quarter will be selected.
+    When qtr is specified, only matching listing files for the quarter will be selected.
 
     Args:
         input_csv_directory: path to the directory from where to get the file
@@ -123,6 +108,11 @@ def list_csv_files(
         If output file has been already created and exists, then skip the filepath.
         """
         if os.path.isfile(filepath) and os.access(filepath, os.R_OK):
+            # --------------------------------------------------------------------------------
+            # Check if the output file to generate already exists (has been created).
+            # The program can be run multiple times, hence avoid processing the file
+            # that has been already processed with the output file created.
+            # --------------------------------------------------------------------------------
             output_filepath = f_output_filepath_for_input_filepath(filepath)
             if os.path.isfile(output_filepath):
                 logging.info(
@@ -134,7 +124,7 @@ def list_csv_files(
                 logging.info("list_csv_files(): adding [%s] to handle" % filepath)
                 return True
         else:
-            logging.info("[%s] does not exist, cannot read, or not a file. skipping." % filepath)
+            logging.error("[%s] does not exist, cannot read, or not a file. skipping." % filepath)
             return False
 
     logging.info("Listing the files to process in the directory %s ..." % input_csv_directory)
