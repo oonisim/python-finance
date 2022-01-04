@@ -7,12 +7,6 @@ import os
 import pathlib
 import random
 import re
-# ================================================================================
-# Setup
-# ================================================================================
-from typing import (
-    Callable
-)
 
 import pandas as pd
 import ray
@@ -26,10 +20,16 @@ from sec_edgar_common import (
     http_get_content,
 )
 from sec_edgar_constant import (
+    DIR_DATA_CSV_LIST,
+    DIR_DATA_CSV_XBRL,
+    DIR_DATA_XML_XBRL,
     EDGAR_HTTP_HEADERS,
 )
 
-pd.set_option('display.max_colwidth', None)
+
+# ================================================================================
+# Setup
+# ================================================================================
 
 
 class EdgarXBRL(EdgarBase):
@@ -39,65 +39,34 @@ class EdgarXBRL(EdgarBase):
     def __init__(self):
         super().__init__()
 
-        self.output_csv_directory_created = False
-
     # ================================================================================
     # Utilities
     # ================================================================================
+    @staticmethod
+    def input_csv_directory_default():
+        return DIR_DATA_CSV_LIST
+
     @staticmethod
     def input_csv_suffix_default():
         return "_LIST.gz"
 
     @staticmethod
+    def output_csv_directory_default():
+        return DIR_DATA_CSV_XBRL
+
+    @staticmethod
     def output_csv_suffix_default():
         return "_XBRL.gz"
 
-    def input_filename_pattern(self):
-        """Generate glob pattern to find the input files"""
-        pattern = ""
-        pattern += f"{self.year}" if self.year else "*"
-        pattern += "QTR"
-        pattern += f"{self.qtr}" if self.qtr else "?"
-        pattern += self.input_csv_suffix if self.input_csv_suffix else ""
-        return pattern
+    @staticmethod
+    def output_xml_directory_default():
+        return DIR_DATA_XML_XBRL
 
     @staticmethod
-    def f_csv_absolute_path_to_save_for_input_filepath(
-            output_csv_directory, output_csv_suffix, input_csv_suffix
-    ) -> Callable:
-        """
-        Generate the function to provide the path to the output file
-        to be created for the input path.
+    def output_xml_suffix_default():
+        return ".xml.gz"
 
-        csv_absolute_path_to_save() does not know the suffix of input file,
-        hence instead of using csv_absolute_path_to_save(), use this one.
-
-        Args:
-            output_csv_directory: Directory to save the output CSV files
-            output_csv_suffix: Suffix of the output CSV file e.g. _XBRL.gz
-            input_csv_suffix: Suffix of the input CSV file e.g. _LIST.gz
-        Returns: Function to generate the output filepath
-        """
-        def f(input_filepath):
-            """
-            Generate the absolute path to the output CSV to save for the input CSV filepath
-            Args:
-                input_filepath: Absolute path to the input csv file
-            Returns: Absolute path to the output CSV file to save
-            """
-            filename = os.path.basename(input_filepath)
-            assert filename.endswith(input_csv_suffix), \
-                "input filepath {} must ends with suffix {}".format(filename, input_csv_suffix)
-
-            base = filename.rstrip(input_csv_suffix)
-            assert len(base) > 0, "base [{}] must have {{YYYY}}QTR{{Q}} format".format(base)
-
-            return f"{output_csv_directory}{os.sep}{base}{output_csv_suffix}"
-
-        return f
-
-    @staticmethod
-    def xml_relative_path_to_save(directory: str, basename: str):
+    def xml_relative_path_to_save(self, directory: str, basename: str):
         """
         Generate the relative file path from the output_xml_directory to save the XBRL XML.
         XML is saved to {output_xml_directory}/{directory}/{basename}.gz.
@@ -109,7 +78,7 @@ class EdgarXBRL(EdgarBase):
         Returns: Absolute file path
         """
         assert not directory.startswith(os.sep), "Must be relative directory path"
-        relative = f"{directory}{os.sep}{basename}.gz"
+        relative = f"{directory}{os.sep}{basename}{self.output_xml_suffix_default()}"
         return relative
 
     def xml_absolute_path_to_save(self, output_xml_directory: str, directory: str, basename: str):
@@ -126,28 +95,6 @@ class EdgarXBRL(EdgarBase):
         relative = self.xml_relative_path_to_save(directory, basename)
         absolute = os.path.realpath(f"{output_xml_directory}{os.sep}{relative}")
         pathlib.Path(os.path.dirname(absolute)).mkdir(mode=0o775, parents=True, exist_ok=True)
-        return absolute
-
-    def csv_absolute_path_to_save(self, directory: str, basename: str, suffix: str=""):
-        """
-        Generate the absolute file path to save the dataframe as csv. Create directory if required.
-
-        Args:
-            directory: *Absolute* path to the directory to save the file
-            basename: Name of the file to save
-            suffix: Suffix of the file
-
-        Returns: Absolute file path
-        """
-        if not self.output_csv_directory_created:
-            try:
-                pathlib.Path(directory).mkdir(mode=0o775, parents=True, exist_ok=True)
-                self.output_csv_directory_created = True
-            except OSError as e:
-                logging.error(f"csv_absolute_path_to_save(): mkdir [%s] failed due to [%s]" % (directory, e))
-                raise RuntimeError("csv_absolute_path_to_save() failed.") from e
-
-        absolute = os.path.realpath(f"{directory}{os.sep}{basename}{suffix}")
         return absolute
 
     @staticmethod

@@ -78,12 +78,12 @@ import os
 import pathlib
 import random
 import re
-import time
 
 import Levenshtein as levenshtein
 import bs4
 import pandas as pd
 import ray
+import time
 from bs4 import (
     BeautifulSoup
 )
@@ -532,7 +532,6 @@ def dispatch(msg: dict):
     ]
     assert len(futures) == num_workers, f"Expected {num_workers} tasks but got {len(futures)}."
     return futures
-
 
 
 # --------------------------------------------------------------------------------

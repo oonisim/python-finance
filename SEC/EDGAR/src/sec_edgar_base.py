@@ -105,6 +105,7 @@ ${DIR_DATA}
 import argparse
 import logging
 import os
+import pathlib
 import re
 from typing import (
     Callable
@@ -125,9 +126,6 @@ from sec_edgar_constant import (
     SEC_FORM_TYPE_10K,
     SEC_FORM_TYPE_10Q,
     DEFAULT_LOG_LEVEL,
-    DIR_DATA_CSV_LIST,
-    DIR_DATA_CSV_XBRL,
-    DIR_DATA_XML_XBRL,
 )
 
 
@@ -157,6 +155,9 @@ class EdgarBase:
         self.log_level = args['log_level']
         self.test_mode = args["test_mode"]
 
+        # State of the output CSV directory creation
+        self.output_csv_directory_created = False
+
         # --------------------------------------------------------------------------------
         # Logging
         # --------------------------------------------------------------------------------
@@ -171,11 +172,27 @@ class EdgarBase:
     # Utility
     # ================================================================================
     @staticmethod
+    def input_csv_directory_default():
+        raise NotImplementedError("TBD")
+
+    @staticmethod
     def input_csv_suffix_default() -> str:
         raise NotImplementedError("TBD")
 
     @staticmethod
+    def output_csv_directory_default():
+        raise NotImplementedError("TBD")
+
+    @staticmethod
     def output_csv_suffix_default():
+        raise NotImplementedError("TBD")
+
+    @staticmethod
+    def output_xml_directory_default():
+        raise NotImplementedError("TBD")
+
+    @staticmethod
+    def output_xml_suffix_default():
         raise NotImplementedError("TBD")
 
     def get_command_line_arguments(self):
@@ -187,7 +204,7 @@ class EdgarBase:
         # --------------------------------------------------------------------------------
         parser.add_argument(
             '-ic', '--input-csv-directory', type=str, required=False,
-            default=DIR_DATA_CSV_LIST,
+            default=self.input_csv_directory_default(),
             help='specify the input data directory'
         )
         parser.add_argument(
@@ -197,7 +214,7 @@ class EdgarBase:
         )
         parser.add_argument(
             '-oc', '--output-csv-directory', type=str, required=False,
-            default=DIR_DATA_CSV_XBRL,
+            default=self.output_csv_directory_default(),
             help='specify the output data directory to save the csv file (not xml)'
         )
         parser.add_argument(
@@ -207,7 +224,7 @@ class EdgarBase:
         )
         parser.add_argument(
             '-ox', '--output-xml-directory', type=str, required=False,
-            default=DIR_DATA_XML_XBRL,
+            default=self.output_xml_directory_default(),
             help='specify the output data directory to save the xml file (not csv)'
         )
         # --------------------------------------------------------------------------------
@@ -292,17 +309,57 @@ class EdgarBase:
             output_csv_directory, output_csv_suffix, input_csv_suffix
     ) -> Callable:
         """
-        Generate the function to provide the absolute path to the output file
+        Generate the function to provide the path to the output file
         to be created for the input path.
 
         csv_absolute_path_to_save() does not know the suffix of input file,
         hence instead of using csv_absolute_path_to_save(), use this one.
-        """
-        raise NotImplementedError("TBD")
 
-    @staticmethod
-    def csv_absolute_path_to_save(output_csv_directory, basename, output_csv_suffix):
-        raise NotImplementedError("TBD")
+        Args:
+            output_csv_directory: Directory to save the output CSV files
+            output_csv_suffix: Suffix of the output CSV file e.g. _XBRL.gz
+            input_csv_suffix: Suffix of the input CSV file e.g. _LIST.gz
+        Returns: Function to generate the output filepath
+        """
+        def f(input_filepath):
+            """
+            Generate the absolute path to the output CSV to save for the input CSV filepath
+            Args:
+                input_filepath: Absolute path to the input csv file
+            Returns: Absolute path to the output CSV file to save
+            """
+            filename = os.path.basename(input_filepath)
+            assert filename.endswith(input_csv_suffix), \
+                "input filepath {} must ends with suffix {}".format(filename, input_csv_suffix)
+
+            base = filename.rstrip(input_csv_suffix)
+            assert len(base) > 0, "base [{}] must have {{YYYY}}QTR{{Q}} format".format(base)
+
+            return f"{output_csv_directory}{os.sep}{base}{output_csv_suffix}"
+
+        return f
+
+    def csv_absolute_path_to_save(self, directory: str, basename: str, suffix: str):
+        """
+        Generate the absolute file path to save the dataframe as csv. Create directory if required.
+
+        Args:
+            directory: *Absolute* path to the directory to save the file
+            basename: Name of the file to save
+            suffix: Suffix of the file
+
+        Returns: Absolute file path
+        """
+        if not self.output_csv_directory_created:
+            try:
+                pathlib.Path(directory).mkdir(mode=0o775, parents=True, exist_ok=True)
+                self.output_csv_directory_created = True
+            except OSError as e:
+                logging.error(f"csv_absolute_path_to_save(): mkdir [%s] failed due to [%s]" % (directory, e))
+                raise RuntimeError("csv_absolute_path_to_save() failed.") from e
+
+        absolute = os.path.realpath(f"{directory}{os.sep}{basename}{suffix}")
+        return absolute
 
     # ================================================================================
     # Processing
@@ -399,7 +456,7 @@ class EdgarBase:
         # --------------------------------------------------------------------------------
         # Report the result
         # --------------------------------------------------------------------------------
-        self.report_result(msg, df)
+        print(self.report_result(msg, df))
 
         return df
 
