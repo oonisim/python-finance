@@ -9,6 +9,7 @@ EDGAR_HTTP_HEADERS = {"User-Agent": "Company Name myname@company.com"}
 # SEC Form Types
 SEC_FORM_TYPE_10K = "10-K"
 SEC_FORM_TYPE_10Q = "10-Q"
+SEC_FORM_TYPES = [SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K]
 
 # --------------------------------------------------------------------------------
 # GAAP
@@ -51,7 +52,6 @@ FS_ITEM_REP_TOTAL_EQUITY = "total_equity"
 # --------------------------------------------------------------------------------
 DEFAULT_LOG_LEVEL = 20  # INFO
 NUM_CPUS = 8
-TEST_MODE = False
 
 # --------------------------------------------------------------------------------
 # Directories

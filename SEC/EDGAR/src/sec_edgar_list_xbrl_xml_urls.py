@@ -2,110 +2,41 @@
 """
 ## Objective
 Navigate through the EDGAR XBRL listings to generate the URLs to XBRL XML files.
-
-## XBRL master index file
-https://www.sec.gov/Archives/edgar/full-index stores the master index files.
-[xbrl.gz] master index file for  TXT file in XBRL version
-
-[Format]
-|CIK    |Company Name|Form Type|Filing Date|TXT Path                                   |
-|-------|------------|---------|-----------|-------------------------------------------|
-|1002047|NetApp, Inc.|10-Q     |2020-02-18 |edgar/data/1002047/0001564590-20-005025.txt|
-
-[Background]
-Previously, XBRL was not introduced or not mandatory, hence the documents are
-in HTML format and the TXT is the all-in-one including all the filing data
-sectioned by <DOCUMENT>.
-
-After the introduction of XBRL and recent mandates, the XBRL master index points
-to the TXT file which is al-in-one including all the filing data in XML format. 
-However, it is not straight-forward to parse the TXT for XBRL and there is
-.xml file which has all the XML data only.
-
-Hence, need to identify the URL to XBRL XML. However, the format fo the filename
-is not consistent, e.g. <name>_htm.xml, <name>.xml. Needs to identify the XML
-filename, then create the UR.
-
-## EDGAR Directory Listing
-Each filing directory provides the listing which lists all the files in the
-directory either as index.html, index.json, or index.xml. Parse the index.xml
-to identify the XBRL XML file.
-
-https://sec.gov/Archives/edgar/full-index/${YEAR}/${QTR}/${ACCESSION}/index.xml
-
-# EDGAR
-* Investopedia -[Where Can I Find a Company's Annual Report and Its SEC Filings?](https://www.investopedia.com/ask/answers/119.asp)
-
-> If you want to dig deeper and go beyond the slick marketing version of the annual report found on corporate websites, you'll have to search through required filings made to the Securities and Exchange Commission. All publicly-traded companies in the U.S. must file regular financial reports with the SEC. These filings include the annual report (known as the 10-K), quarterly report (10-Q), and a myriad of other forms containing all types of financial data.45
-
-# Quarterly filing indices
-* [Accessing EDGAR Data](https://www.sec.gov/os/accessing-edgar-data)
-
-> Using the EDGAR index files  
-Indexes to all public filings are available from 1994Q3 through the present and located in the following browsable directories:
-> * https://www.sec.gov/Archives/edgar/daily-index/ — daily index files through the current year; (**DO NOT forget the trailing slash '/'**)
-> * https://www.sec.gov/Archives/edgar/full-index/ — full indexes offer a "bridge" between quarterly and daily indexes, compiling filings from the beginning of the current quarter through the previous business day. At the end of the quarter, the full index is rolled into a static quarterly index.
-> 
-> Each directory and all child sub directories contain three files to assist in automated crawling of these directories. Note that these are not visible through directory browsing.
-> * index.html (the web browser would normally receive these)
-> * index.xml (an XML structured version of the same content)
-> * index.json (a JSON structured vision of the same content)
-> 
-> Four types of indexes are available:
-> * company — sorted by company name
-> * form — sorted by form type
-> * master — sorted by CIK number 
-> * **XBRL** — list of submissions containing XBRL financial files, sorted by CIK number; these include Voluntary Filer Program submissions
-> 
-> The EDGAR indexes list the following information for each filing:
-> * company name
-> * form type
-> * central index key (CIK)
-> * date filed
-> * file name (including folder path)
-
-## Example
-
-Full index files for 2006 QTR 3.
-<img src="../image/edgar_full_index_quarter_2006QTR3.png" align="left" width="800"/>
 """
 # ================================================================================
 # Setup
 # ================================================================================
 import argparse
+import logging
 import os
 import pathlib
-import logging
-import re
-import time
 import random
-import ray
+import re
+
+import Levenshtein as levenshtein
 import bs4
 import pandas as pd
+import ray
+import time
 from bs4 import (
     BeautifulSoup
 )
-import Levenshtein as levenshtein
+
+from sec_edgar_common import (
+    http_get_content,
+    split,
+    list_csv_files,
+    load_from_csv,
+    output_filepath_for_input_filepath,
+)
 from sec_edgar_constant import (
-    TEST_MODE,
     NUM_CPUS,
-    SEC_FORM_TYPE_10K,
-    SEC_FORM_TYPE_10Q,
     EDGAR_BASE_URL,
     EDGAR_HTTP_HEADERS,
     DEFAULT_LOG_LEVEL,
     DIR_DATA_CSV_INDEX,
     DIR_DATA_CSV_LIST
 )
-from sec_edgar_common import(
-    http_get_content,
-    split,
-    list_csv_files,
-    load_from_csv,
-    director,
-    output_filepath_for_input_filepath,
-)
-
 
 pd.set_option('display.max_colwidth', None)
 
@@ -510,14 +441,19 @@ def dispatch(msg: dict):
     filepath = msg['filepath']
     num_workers = msg['num_workers']
     log_level = msg['log_level']
+    test_mopde = msg['test_mode']
+    form_types = msg['form_types']
 
     # --------------------------------------------------------------------------------
     # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
     # --------------------------------------------------------------------------------
-    df = load_from_csv(filepath=filepath, types=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K])
+    df = load_from_csv(filepath=filepath, types=form_types)
     assert df is not None and len(df) > 0, f"Invalid dataframe \n{df}"
-    if TEST_MODE:
-        df = df.head(NUM_CPUS)
+
+    # --------------------------------------------------------------------------------
+    # Test debug configurations
+    # --------------------------------------------------------------------------------
+    df = df.head(NUM_CPUS) if test_mopde else df
 
     # --------------------------------------------------------------------------------
     # Asynchronously invoke tasks
@@ -531,7 +467,6 @@ def dispatch(msg: dict):
     ]
     assert len(futures) == num_workers, f"Expected {num_workers} tasks but got {len(futures)}."
     return futures
-
 
 
 # --------------------------------------------------------------------------------

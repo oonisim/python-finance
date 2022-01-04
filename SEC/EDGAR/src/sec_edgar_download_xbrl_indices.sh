@@ -19,11 +19,11 @@ set -e
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd ${DIR}
 
-DATA_DIR=$(realpath ../data/listings/XBRL)
+DATA_DIR=$(realpath ../data/csv/index)
 mkdir -p ${DATA_DIR}
 
 
-SEC_EDGAR_LISTING_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
+EDGAR_MASTER_INDEX_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
 YEAR=2010
 while [ ${YEAR} -le 2021 ]
 do
@@ -34,7 +34,7 @@ do
         curl --silent -C - \
         --header 'User-Agent:Company Name myname@company.com' \
         --output "${DATA_DIR}/${YEAR}QTR${QTR}.gz" \
-        "${SEC_EDGAR_LISTING_BASE_URL}/${YEAR}/QTR{$QTR}/xbrl.gz"
+        "${EDGAR_MASTER_INDEX_BASE_URL}/${YEAR}/QTR{$QTR}/xbrl.gz"
 
         sleep 1
         QTR=$((${QTR}+1))

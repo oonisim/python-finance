@@ -62,10 +62,10 @@ import os
 import pathlib
 import random
 import re
-import time
 
 import pandas as pd
 import ray
+import time
 
 from sec_edgar_base import (
     EdgarBase
@@ -226,7 +226,7 @@ class EdgarXBRL(EdgarBase):
     # Logic
     # ================================================================================
     @ray.remote(num_returns=1)
-    def worker(self, msg: dict):
+    def worker(self, msg: dict) -> pd.DataFrame:
         """
         1. GET XBRL XML from the filing directory and save to a file.
         2. Update the listing dataframe with the year, qtr, path to the saved XBRL XML.

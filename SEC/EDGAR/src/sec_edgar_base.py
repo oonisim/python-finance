@@ -1,3 +1,107 @@
+"""
+--------------------------------------------------------------------------------
+# SEC EDGAR
+--------------------------------------------------------------------------------
+* [Where Can I Find a Company's Annual Report and Its SEC Filings?]
+(https://www.investopedia.com/ask/answers/119.asp)
+
+> If you want to dig deeper and go beyond the slick marketing version of the
+annual report found on corporate websites, you'll have to search through
+required filings made to the Securities and Exchange Commission.
+>
+> All publicly-traded companies in the U.S. must file regular financial reports
+with the SEC. These filings include the annual report (known as the 10-K),
+quarterly report (10-Q), and a myriad of other forms containing all types of
+financial data.
+
+# [EDGAR Quarterly Filing Indices]
+* [Accessing EDGAR Data](https://www.sec.gov/os/accessing-edgar-data)
+
+> Using the EDGAR index files
+Indexes to all public filings are available from 1994Q3 through the present and
+located in the following browsable directories:
+> * https://www.sec.gov/Archives/edgar/daily-index/
+> — daily index files through the current year; (**DO NOT forget the trailing slash '/'**)
+> * https://www.sec.gov/Archives/edgar/full-index/
+> — full indexes offer a "bridge" between quarterly and daily indexes,
+> compiling filings from the beginning of the current quarter through the
+> previous business day. At the end of the quarter, the full index is rolled
+> into a static quarterly index.
+>
+> Each directory and all child sub directories contain three files to assist
+> in automated crawling of these directories. Note that these are not visible
+> through directory browsing.
+> * index.html (the web browser would normally receive these)
+> * index.xml (an XML structured version of the same content)
+> * index.json (a JSON structured vision of the same content)
+>
+> Four types of indexes are available:
+> * company — sorted by company name
+> * form — sorted by form type
+> * master — sorted by CIK number
+> * **XBRL** — list of submissions containing XBRL financial files, sorted by CIK number; these include Voluntary Filer Program submissions
+>
+> The EDGAR indexes list the following information for each filing:
+> * company name
+> * form type
+> * central index key (CIK)
+> * date filed
+> * file name (including folder path)
+
+--------------------------------------------------------------------------------
+# Master index file for XBRL
+--------------------------------------------------------------------------------
+<YYYY>/<QTR>/xbrl.gz in https://www.sec.gov/Archives/edgar/full-index" is
+the master index file for the filings in XML format at each YYYY/QTR.
++-- <YYYY>
+    +-- <QTR>
+        +-- xbrl.gz
+
+The master index file is a CSV with the format:
+|CIK    |Company Name|Form Type|Filing Date|TXT Path                                   |
+|-------|------------|---------|-----------|-------------------------------------------|
+|1002047|NetApp, Inc.|10-Q     |2020-02-18 |edgar/data/1002047/0001564590-20-005025.txt|
+
+Each row points to the TXT file which is all-in-one file for the filing where
+each document is segmented with <DOCUMENT> tag. However, it is not easy to
+parse the TXT to extract each financial statement (FS).
+
+Instead, use the XBRL XML file which each filing director contains.
+
+--------------------------------------------------------------------------------
+# EDGAR Directory Listing
+--------------------------------------------------------------------------------
+Each filing directory has index.xml that lists all the files in the directory.
+https://sec.gov/Archives/edgar/full-index/${YEAR}/${QTR}/${ACCESSION}/index.xml
+
+Hence, identify the URL to XBRL XML from index.xml. However, the filename
+is not consistent, e.g. <name>_htm.xml, <name>.xml. You need to find it out.
+
+--------------------------------------------------------------------------------
+Local Directory Structure and Naming Conventions
+--------------------------------------------------------------------------------
+${DIR_DATA}
++-- csv
+¦   +-- index
+¦   ¦   +-- <YYYY>QTR<QTR>            <--- EDGAR master index for the year YYYY and quarter Q
+¦   +-- listing
+¦   ¦   +-- <YYYY>QTR<QTR>_LIST.gz    <--- SEC filing directory index.xml listings for the year and quarter
+¦   +-- xbrl
+¦       +-- <YYYY>QTR<QTR>_XBRL.gz    <--- Path list to the SEC filing XBRL XML files the year and quarter
++-- xml
+    +-- xbrl
+        +-- <CIK>
+            +-- <ACCESSION>
+                +-- <XBRL>.gz       <--- SEC filing XBRL XML file for the CIK and ACCESSION.
+
+1. Download master index file for XBRL for each YYYY/QTR.
+   The result is <YYYY>QTR<QTR>. See the shell script.
+2. Iterate through <YYYY>QTR<QTR> index file to identify the URL to XBRL XML.
+   The result is <YYYY>QTR<QTR>_LIST.gz.
+3. Iterate through <YYYY>QTR<QTR>_LIST.gz to download XBRL XML for CIK/ACCESSION
+   and record the local file path to the files.
+   The result is <YYYY>QTR<QTR>_XBRL.gz and an XML file in <CIK/<ACCESSION>/.
+"""
 import argparse
 import logging
 import os
@@ -14,7 +118,6 @@ from sec_edgar_common import (
     save_to_csv,
 )
 from sec_edgar_constant import (
-    TEST_MODE,
     NUM_CPUS,
     SEC_FORM_TYPE_10K,
     SEC_FORM_TYPE_10Q,
@@ -73,6 +176,11 @@ class EdgarBase:
             help='specify the quarter of the filing'
         )
         parser.add_argument(
+            '-f', '--form-types', type=str.upper, nargs='+', required=False,
+            default=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K],
+            help='specify the form types to select e.g. 10-Q, 10-K'
+        )
+        parser.add_argument(
             '-n', '--num-workers', type=int, required=False,
             default=NUM_CPUS,
             help='specify the number of workers to use'
@@ -82,7 +190,22 @@ class EdgarBase:
             default=DEFAULT_LOG_LEVEL,
             help='specify the logging level (10 for INFO)',
         )
+        parser.add_argument(
+            '-t', '--test-mode', action="store_true",
+            help='specify to use the test mode'
+        )
+
+        # --------------------------------------------------------------------------------
+        # Validations
+        # --------------------------------------------------------------------------------
         args = vars(parser.parse_args())
+        assert all([
+            form in [SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K]
+            for form in args['form_types']
+        ]), "Invalid form type(s) in [%s]" % args['form_types']
+        assert isinstance(args["test_mode"], bool), \
+            f"Invalid test_mode {type(args['test_mode'])}"
+
         return args
 
     @staticmethod
@@ -95,7 +218,11 @@ class EdgarBase:
 
     @staticmethod
     @ray.remote(num_returns=1)
-    def worker(msg: dict):
+    def worker(msg: dict) -> pd.DataFrame:
+        """Worker task to execute based on the instruction message
+        Args:
+            msg: task instruction message
+        """
         raise NotImplementedError("TBD")
 
     @staticmethod
@@ -105,14 +232,19 @@ class EdgarBase:
     def dispatch(self, msg: dict):
         filepath = msg['filepath']
         num_workers = msg['num_workers']
+        form_types = msg['form_types']
+        test_mopde = msg['test_mode']
 
         # --------------------------------------------------------------------------------
         # Load the listing CSV ({YEAR}QTR{QTR}_LIST.gz) into datafame
         # --------------------------------------------------------------------------------
-        df = load_from_csv(filepath=filepath, types=[SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K])
+        df = load_from_csv(filepath=filepath, types=form_types)
         assert df is not None and len(df) > 0, "worker(): invalid dataframe"
-        if TEST_MODE:
-            df = df.head(NUM_CPUS)
+
+        # --------------------------------------------------------------------------------
+        # Test debug configurations
+        # --------------------------------------------------------------------------------
+        df = df.head(NUM_CPUS) if test_mopde else df
 
         # --------------------------------------------------------------------------------
         # Asynchronously invoke tasks
