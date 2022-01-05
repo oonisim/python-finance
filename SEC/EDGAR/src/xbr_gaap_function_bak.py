@@ -703,7 +703,7 @@ PL += get_pl_non_operating_expense_interest(soup)
 
 
 # ### Non-operating Expenses
-def get_pl_non_operatintg_expense_other(soup):
+def get_pl_non_operating_expense_other(soup):
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:OtherNonOperatingIncomeExpense$",
     ]).lower())

@@ -1,7 +1,8 @@
 import logging
 import re
 from typing import (
-    List
+    List,
+    Callable
 )
 
 import bs4
@@ -17,6 +18,7 @@ from sec_edgar_constant import (
     # EDGAR
     DF_COLUMN_CIK,
     DF_COLUMN_COMPANY,
+    DF_COLUMN_FORM_TYPE,
     DF_COLUMN_DATE_FILED,
     DF_COLUMN_FILENAME,
     DF_COLUMN_FILEPATH,
@@ -31,10 +33,40 @@ from sec_edgar_constant import (
     # BS
 )
 from xbrl_gaap_function import (
-    PL_FUNCTIONS,
-    BS_FUNCTIONS,
-    get_financial_element_columns
+    get_attributes_to_select_target_fs_elements,
+    get_financial_element_columns,
+    get_pl_revenues,
+    get_pl_cost_of_revenues,
+    get_pl_gross_profit,
+    get_pl_operating_expense_r_and_d,
+    get_pl_operating_expense_selling_administrative,
+    get_pl_operating_expense_other,
+    get_pl_operating_expense_total,
+    get_pl_operating_income,
+    get_pl_non_operating_expense_interest,
+    get_pl_non_operating_expense_other,
+    get_pl_income_tax,
+    get_pl_net_income,
+    get_pl_shares_outstanding,
+    get_pl_eps,
 )
+
+PL_FUNCTIONS: List[Callable] = [
+    get_pl_revenues,
+    get_pl_cost_of_revenues,
+    get_pl_gross_profit,
+    get_pl_operating_expense_r_and_d,
+    get_pl_operating_expense_selling_administrative,
+    get_pl_operating_expense_other,
+    get_pl_operating_expense_total,
+    get_pl_operating_income,
+    get_pl_non_operating_expense_interest,
+    get_pl_non_operating_expense_other,
+    get_pl_income_tax,
+    get_pl_net_income,
+    get_pl_shares_outstanding,
+    get_pl_eps,
+]
 
 
 class EdgarGapp(EdgarBase):
@@ -78,22 +110,28 @@ class EdgarGapp(EdgarBase):
         pass
         return content
 
-    def generate_PL(self, source: bs4.BeautifulSoup, cik) -> List[List[str]]:
+    def get_PL(
+            self, source: bs4.BeautifulSoup, attributes: dict, cik: str
+    ) -> List[List[str]]:
         """Generate PL records.
         Args:
-              source: XBRL XML source
-              cik: CIK of the filing
+            source: XBRL XML source
+            attributes: XML attributes to match the XML elements
+            cik: CIK of the filing compnay
         Returns:
             List of FS records with the format:
             |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
         return sum([[cik] + f(source) for f in PL_FUNCTIONS], [])
 
-    def generate_BS(self, source: bs4.BeautifulSoup, cik) -> List[List[str]]:
+    def get_BS(
+            self, source: bs4.BeautifulSoup, attributes: dict, cik: str
+    ) -> List[List[str]]:
         """Generate BS records.
         Args:
-              source: XBRL XML source
-              cik: CIK of the filing
+            source: XBRL XML source
+            attributes: XML attributes to match the XML elements
+            cik: CIK of the filing compnay
         Returns:
             List of FS records with the format:
             |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
@@ -111,11 +149,16 @@ class EdgarGapp(EdgarBase):
         assert isinstance(row, dict)
         filepath = row[DF_COLUMN_FILEPATH]
         cik = row[DF_COLUMN_CIK]
-        xml = self.load_from_xml(filepath)
+        form_type = row[DF_COLUMN_FORM_TYPE]
 
-        soup = BeautifulSoup(xml, 'html.parser')
-        pl = self.generate_PL(soup, cik)
-        bs = self.generate_BS(soup, cik)
+        xml = self.load_from_xml(filepath)
+        source = BeautifulSoup(xml, 'html.parser')
+
+        attributes = get_attributes_to_select_target_fs_elements(
+            soup=soup, form_type=form_type
+        )
+        pl = self.get_PL(source=source, )
+
         del soup
         return pl + bs
 
