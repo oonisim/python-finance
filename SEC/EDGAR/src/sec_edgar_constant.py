@@ -4,16 +4,33 @@ import os
 # --------------------------------------------------------------------------------
 # SEC
 # --------------------------------------------------------------------------------
-# SEC EDGAR
-EDGAR_BASE_URL = "https://sec.gov/Archives"
-EDGAR_HTTP_HEADERS = {"User-Agent": "Company Name myname@company.com"}
-# SEC Form Types
+# SEC
 SEC_FORM_TYPE_10K = "10-K"
 SEC_FORM_TYPE_10Q = "10-Q"
 SEC_FORM_TYPES = [SEC_FORM_TYPE_10Q, SEC_FORM_TYPE_10K]
+# SEC EDGAR
+EDGAR_BASE_URL = "https://sec.gov/Archives"
+EDGAR_HTTP_HEADERS = {"User-Agent": "Company Name myname@company.com"}
+
+DF_COLUMN_CIK = 'CIK'
+DF_COLUMN_COMPANY = 'Company Name'
+DF_COLUMN_FORM_TYPE = 'Form Type'         # SEC Form Type, e.g. 10-K
+DF_COLUMN_DATE_FILED = 'Date Filed'
+DF_COLUMN_FILENAME = "Filename"
+DF_COLUMN_FILEPATH = "Filepath"
+
+DF_COLUMN_YEAR = "Year"
+DF_COLUMN_QTR = "Quarter"
+DF_COLUMN_FS = "FS"
+DF_COLUMN_REP = "Rep"
+DF_COLUMN_TYPE = "Type"
+DF_COLUMN_NAME = "Name"
+DF_COLUMN_UNIT = "Unit"
+DF_COLUMN_DECIMALS = "Decimals"
+DF_COLUMN_CONTEXT = "Context"
 
 # --------------------------------------------------------------------------------
-# GAAP
+# FS
 # --------------------------------------------------------------------------------
 FS_BS = "bs"                        # Financial Statement - Balance Sheet
 FS_PL = "pl"                        # Financial Statement - Income Statement (PL)

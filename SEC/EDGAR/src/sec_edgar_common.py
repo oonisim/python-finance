@@ -1,13 +1,9 @@
 import glob
 import logging
 import os
-import re
 
 import pandas as pd
 import requests
-
-# regexp to extract numeric string
-REGEXP_NUMERIC = re.compile(r"\s*[\d.-]*\s*")
 
 
 def filename_basename(filename):
