@@ -10,6 +10,10 @@ import dateutil
 import numpy as np
 from bs4 import BeautifulSoup
 
+from sec_edgar_common import (
+    has_date_format,
+    filename_basename,
+)
 from sec_edgar_constant import (
     # SEC Form Types
     SEC_FORM_TYPE_10K,
@@ -53,6 +57,12 @@ from xbrl_gaap_constant import (
 )
 
 REGEXP_NUMERIC = re.compile(r"\s*[\d.-]*\s*")
+REGEXP_XBRL_END_DATE_PATTERN = re.compile(r"(\s*)([12][0-9]{3}-[0-9]{1,2}-[0-9]{1,2})(\s*)")
+REGEXP_XBRL_TAG_CONTEXT = re.compile(rf"^(context)$|^(.*:context)$", re.IGNORECASE)
+REGEXP_XBRL_TAG_INSTANT = re.compile(rf"^(instant)$|^(.*:instant)$", re.IGNORECASE)
+REGEXP_XBRL_TAG_PERIOD = re.compile(rf"^(period)$|^(.*:period)$", re.IGNORECASE)
+REGEXP_XBRL_TAG_START_DATE = re.compile(rf"^(startdate)$|^(.*:startdate)$", re.IGNORECASE)
+REGEXP_XBRL_TAG_END_DATE = re.compile(rf"^(enddate)$|^(.*:enddate)$", re.IGNORECASE)
 
 
 # ================================================================================
@@ -206,7 +216,41 @@ def get_company_name(soup):
 #
 # For now, just get the period from the 1st **period** element.
 # --------------------------------------------------------------------------------
-def get_report_period_end_date(soup) -> str:
+def get_date_from_xbrl_filename(filename):
+    """
+    Infer the reporting period end date from the XBRL XML filename.
+    e.g if XBRL XML is rfmd-20210403_htm.xml, then 2021-04-03 is highly
+    like to be the report period end date.
+
+    In the XBRL XML file, there is a Context which identifies the end date
+    of the report period.
+
+    <context id="ifb6ce67cf6954ebf88471dd82daa9247_D20200329-20210403">
+        <entity>
+        <identifier scheme="http://www.sec.gov/CIK">0001604778</identifier>
+        </entity>
+        <period>
+            <startDate>2020-03-29</startDate>
+            <endDate>2021-04-03</endDate>         # <--- end of the period
+        </period>
+    </context>
+
+    This endDate value is highly likely to match the date from the filename.
+    """
+    filename = filename_basename(filename)
+    pattern = re.compile(r"([^0-9]*)[-]*([12][0-9]{3})[-]*([0-9]{2})[-]*([0-9]{2})(.*)")
+    match = re.match(pattern, filename)
+    if match:
+        year = match.group(2)
+        month = match.group(3)
+        day = match.group(4)
+        date_from_xbrl_filename = "-".join([year, month, day])
+        return date_from_xbrl_filename
+    else:
+        return None
+
+
+def get_report_period_end_date(soup, date_from_xbrl_filename):
     """Identify the end date of the report period from the first "context" tag
     in the XBRL that has <period><startDate> tag as its child tag.
 
@@ -235,42 +279,47 @@ def get_report_period_end_date(soup) -> str:
 
     Args:
         soup: Source BS4
+        date_from_xbrl_filename: Date extracted from XBRL XML filename
     Returns: reporting period in string e.g. "2021-09-30"
     Raises:
         RuntimeError: when the report period date is invalid
     """
-    first_context = None
-    for context in soup.find_all('context'):
-        if context.find('period') and context.find('period').find('enddate'):
-            first_context = context
-            break
+    candidates = []
+    report_period_end_date = None
 
     # --------------------------------------------------------------------------------
-    # The end date of the current report period is mandatory, without which
-    # we cannot process the filing XBRL.
+    # List all the endDate from the Contexts
     # --------------------------------------------------------------------------------
-    if first_context is None:
-        raise RuntimeError("No Context found to identify the current report period end date.")
-    end_date = first_context.find('period').find('enddate').text.strip()
+    for context in soup.find_all(REGEXP_XBRL_TAG_CONTEXT):
+        # --------------------------------------------------------------------------------
+        # Find Context tag which has <period><enddate> child tag
+        # --------------------------------------------------------------------------------
+        period = context.find(REGEXP_XBRL_TAG_PERIOD)
+        if period:
+            end_date = period.find(REGEXP_XBRL_TAG_END_DATE)
+            if end_date:
+                match = re.match(REGEXP_XBRL_END_DATE_PATTERN, end_date.string.strip())
+                if match and has_date_format(match.group(2)):
+                    candidates.append(match.group(2))
+
+    if len(candidates) <= 0:
+            raise RuntimeError("No Context found to identify the current report period end date.")
 
     # --------------------------------------------------------------------------------
-    # Validate date/time string format
+    # If the date from the XBRL XML name is in the candidate, use it as the end_datge
+    # Otherwise use the first candidate.
     # --------------------------------------------------------------------------------
-    try:
-        dateutil.parser.parse(end_date)
-    except ValueError as e:
-        logging.error(
-            "get_report_period_end_date(): invalid end date[%s] in context\n[%s]" %
-            (end_date, first_context)
-        )
-        raise RuntimeError("get_report_period_end_date()") from e
+    if date_from_xbrl_filename in candidates:
+        report_period_end_date = date_from_xbrl_filename
+    else:
+        report_period_end_date = candidates[0]
 
-    return end_date
+    return report_period_end_date
 
 
-def get_target_context_ids(soup, period_end_date: str, form_type: str):
+def get_target_context_ids(soup, report_period_end_date: str, form_type: str):
     """
-    Extract all the contexts that refer to the reporting period of the filing.
+    Extract all the ids of the context that refer to the reporting period.
 
     XBRL (10-K,10-Q) uses multiple contexts to refer to the F/S items in the
     reporting period. Some Contexts refer to the current period but others
@@ -313,16 +362,16 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
 
     Args:
         soup: BS4 source
-        period_end_date: Dnd date of the reporting period
+        report_period_end_date: Dnd date of the reporting period
         form_type: Filing form type e.g. FORM_TYPE_10K
     """
-    end_date = dateutil.parser.parse(period_end_date)
+    end_date = dateutil.parser.parse(report_period_end_date)
     if form_type == SEC_FORM_TYPE_10K:
         duration = datetime.timedelta(days=365)
     elif form_type == SEC_FORM_TYPE_10Q:
         duration = datetime.timedelta(days=90)
     else:
-        assert f"The form type {form_type} is not currently supported"
+        raise RuntimeError("The form type {form_type} is not currently supported")
 
     # --------------------------------------------------------------------------------
     # (from, to) range wherein the start date of the reprting period should exits.
@@ -336,16 +385,25 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
     to_date = end_date - duration + datetime.timedelta(days=30)
 
     # --------------------------------------------------------------------------------
+    # Use "(\s*)({report_period_end_date})(\s*)" to match with the endDate.
+    # Some XBRL has tag string value that includes \n and other non pritables.
+    # --------------------------------------------------------------------------------
+    regexp_report_period_end_date = re.compile(rf"(\s*)({report_period_end_date})(\s*)")
+
+    # --------------------------------------------------------------------------------
     # Contexts with 'startdate' child tag
     # Find the context tags whose <period><startDate> child tag value is in-between
     # (from, to) range. Those are the tags that refer to the current reporting period.
     # --------------------------------------------------------------------------------
     target_context_ids = []
-    for context in soup.find_all('context'):
-        # Find context whose <period>/<endDate> child tag value matches the end date of the period
-        if context.find('period') and context.find('period').find('enddate', string=period_end_date):
+    for context in soup.find_all(REGEXP_XBRL_TAG_CONTEXT):
+        # Find contexts whose <period>/<endDate> child tag value matches the end date of the period
+        if (
+            context.find(REGEXP_XBRL_TAG_PERIOD) and
+            context.find(REGEXP_XBRL_TAG_PERIOD).find(REGEXP_XBRL_TAG_END_DATE, string=regexp_report_period_end_date)
+        ):
             # Get the <period><startDate> value
-            start = dateutil.parser.parse(context.find('period').find('startdate').text)
+            start = dateutil.parser.parse(context.find(REGEXP_XBRL_TAG_PERIOD).find(REGEXP_XBRL_TAG_START_DATE).text)
             # --------------------------------------------------------------------------------
             # If the startDate is in-between (from, to), or equal to period_end_date,
             # then the context is the one that refers to the current report period.
@@ -355,7 +413,7 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
             # that refers to the current reporting period for some companies e.g.
             # 10-K of October 31, 2021 by Optical Cable Corporation.
             # --------------------------------------------------------------------------------
-            if start == end_date or (from_date < start and start < to_date):
+            if start == end_date or (from_date < start < to_date):
                 target_context_ids.append(context['id'])
 
     # --------------------------------------------------------------------------------
@@ -364,16 +422,22 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
     # Those are the tags that also refer to the current reporting period.
     # --------------------------------------------------------------------------------
     target_context_ids.extend([
-        context['id'] for context in soup.find_all('context')
-        if context.find('period') and context.find('period').find(['instant'], string=period_end_date)
+        context['id'] for context in soup.find_all(REGEXP_XBRL_TAG_CONTEXT)
+        if (
+            context.find(REGEXP_XBRL_TAG_PERIOD) and
+            context.find(REGEXP_XBRL_TAG_PERIOD).find(
+                [REGEXP_XBRL_TAG_INSTANT], string=regexp_report_period_end_date
+            )
+        )
     ])
 
     return target_context_ids
 
 
-def get_regexp_to_match_target_context_ids(soup, form_type: str) -> re.Pattern:
+def get_regexp_to_match_target_context_ids(
+        soup, form_type: str, date_from_xbrl_filename
+) -> re.Pattern:
     """Generate the regexp to match the ContextRef attribute values
-
     XBRL (10-K,10-Q) uses multiple contexts to refer to the F/S items in the
     reporting period.
 
@@ -414,6 +478,7 @@ def get_regexp_to_match_target_context_ids(soup, form_type: str) -> re.Pattern:
     Args:
         soup: BS4 source
         form_type: Filing form type e.g. FORM_TYPE_10K
+        date_from_xbrl_filename: Date extracted from XBRL XML filename
     """
     # --------------------------------------------------------------------------------
     # Identify the END_DATE of the report period from the XBRL XML.
@@ -427,7 +492,7 @@ def get_regexp_to_match_target_context_ids(soup, form_type: str) -> re.Pattern:
     #     </period>
     # </context>
     # --------------------------------------------------------------------------------
-    report_period_end_date = get_report_period_end_date(soup)
+    report_period_end_date = get_report_period_end_date(soup, date_from_xbrl_filename)
 
     # --------------------------------------------------------------------------------
     # Get all the Context IDs that belong to the filing reporting period.
@@ -438,7 +503,7 @@ def get_regexp_to_match_target_context_ids(soup, form_type: str) -> re.Pattern:
     # 2020-05-03 (end_date - duration + datetime.timedelta(days=30).
     # --------------------------------------------------------------------------------
     context_ids = get_target_context_ids(
-        soup=soup, period_end_date=report_period_end_date, form_type=form_type
+        soup=soup, report_period_end_date=report_period_end_date, form_type=form_type
     )
     regexp = re.compile("|".join(context_ids))
     return regexp
@@ -446,7 +511,8 @@ def get_regexp_to_match_target_context_ids(soup, form_type: str) -> re.Pattern:
 
 def get_attributes_to_select_target_fs_elements(
         soup: bs4.BeautifulSoup,
-        form_type: str
+        form_type: str,
+        date_from_xbrl_filename
 ) -> dict:
     """Generate dictionary of attributes by which to select the FS elements
     that belong to the reporting period of the filing.
@@ -476,9 +542,10 @@ def get_attributes_to_select_target_fs_elements(
     Args:
         soup: XML source
         form_type: SEC Form Type
+        date_from_xbrl_filename: Date extracted from XBRL XML filename
     """
     regexp_to_match_target_context_ids = get_regexp_to_match_target_context_ids(
-        soup=soup, form_type=form_type
+        soup=soup, form_type=form_type, date_from_xbrl_filename=date_from_xbrl_filename
     )
     attributes = {
         "contextref": regexp_to_match_target_context_ids,
@@ -643,7 +710,7 @@ def get_records_for_financial_element_names(soup, names, attributes: dict):
     """
     elements = find_financial_elements(soup=soup, element_names=names, attributes=attributes)
     if len(elements) > 0:
-        display_elements(elements)
+        # display_elements(elements)
         return get_records_for_financial_elements(elements)
     else:
         return get_record_for_nil_elements(elements)
@@ -652,7 +719,7 @@ def get_records_for_financial_element_names(soup, names, attributes: dict):
 def get_values_for_financial_element_names(soup, names, attributes: dict):
     elements = find_financial_elements(soup=soup, element_names=names, attributes=attributes)
     if len(elements) > 0:
-        display_elements(elements)
+        # display_elements(elements)
         return get_financial_element_numeric_values(elements)
     else:
         return []
@@ -672,23 +739,29 @@ def get_shares_outstanding(soup, attributes: dict):
 # ================================================================================
 def get_pl_revenues(soup, attributes: dict):
     names = re.compile("|".join([
-            rf"^{NAMESPACE_GAAP}:Revenues$",
-            rf"^{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
-            rf"^{NAMESPACE_GAAP}:RealEstateRevenueNet$",
-            rf"^{NAMESPACE_GAAP}:SalesOfRealEstate$",
-            rf"^{NAMESPACE_GAAP}:AdvertisingRevenue$",
-            rf"^{NAMESPACE_GAAP}:ElectricalGenerationRevenue$",
-            rf"^{NAMESPACE_GAAP}:ContractsRevenue$",
-            rf"^{NAMESPACE_GAAP}:RevenueMineralSales$",
-            rf"^{NAMESPACE_GAAP}:DeferredRevenueCurrent$",
-            rf"^{NAMESPACE_GAAP}:HealthCareOrganizationRevenue$",
-            rf"^{NAMESPACE_GAAP}:SalesRevenueGoodsGross$",
-            rf"^{NAMESPACE_GAAP}:AdmissionsRevenue$",
-            rf"^{NAMESPACE_GAAP}:InsuranceServicesRevenue$",
-            rf"^{NAMESPACE_GAAP}:BrokerageCommissionsRevenue$",
-            rf"^{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue$"
-            rf"^{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue$",
-            rf"^{NAMESPACE_GAAP}:DeferredRevenue$",
+            rf"{NAMESPACE_GAAP}:Revenues$",
+            rf"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
+            rf"{NAMESPACE_GAAP}:SalesRevenueNet$",
+            rf"{NAMESPACE_GAAP}:SalesRevenueGoodsNet$",
+            rf"{NAMESPACE_GAAP}:RealEstateRevenueNet$",
+            rf"{NAMESPACE_GAAP}:SalesOfRealEstate$",
+            rf"{NAMESPACE_GAAP}:AdvertisingRevenue$",
+            rf"{NAMESPACE_GAAP}:ElectricalGenerationRevenue$",
+            rf"{NAMESPACE_GAAP}:ContractsRevenue$",
+            rf"{NAMESPACE_GAAP}:RevenueMineralSales$",
+            rf"{NAMESPACE_GAAP}:DeferredRevenueCurrent$",
+            rf"{NAMESPACE_GAAP}:HealthCareOrganizationRevenue$",
+            rf"{NAMESPACE_GAAP}:SalesRevenueGoodsGross$",
+            rf"{NAMESPACE_GAAP}:SalesRevenueServicesNet$",
+            rf"{NAMESPACE_GAAP}:AdmissionsRevenue$",
+            rf"{NAMESPACE_GAAP}:InsuranceServicesRevenue$",
+            rf"{NAMESPACE_GAAP}:BrokerageCommissionsRevenue$",
+            rf"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
+            rf"{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue$"
+            rf"{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue$",
+            rf"{NAMESPACE_GAAP}:DeferredRevenue$",
+            rf"{NAMESPACE_GAAP}:InvestmentIncomeInterest$",
+            rf"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles$",
         ]),
         re.IGNORECASE
     )
@@ -701,12 +774,12 @@ def get_pl_revenues(soup, attributes: dict):
 
 def get_pl_cost_of_revenues(soup, attributes: dict):
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:CostOfRevenue$",
-        rf"^{NAMESPACE_GAAP}:CostOfGoods$",
-        rf"^{NAMESPACE_GAAP}:CostOfGoodsAndServicesSold$",
-        rf"^{NAMESPACE_GAAP}:ContractRevenueCost$",
-        rf"^{NAMESPACE_GAAP}:CostOfServicesLicensesAndServices$"
-        rf"^{NAMESPACE_GAAP}:LicenseCosts$"
+        rf"{NAMESPACE_GAAP}:CostOfRevenue$",
+        rf"{NAMESPACE_GAAP}:CostOfGoods$",
+        rf"{NAMESPACE_GAAP}:CostOfGoodsAndServicesSold$",
+        rf"{NAMESPACE_GAAP}:ContractRevenueCost$",
+        rf"{NAMESPACE_GAAP}:CostOfServicesLicensesAndServices$"
+        rf"{NAMESPACE_GAAP}:LicenseCosts$"
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
@@ -716,7 +789,7 @@ def get_pl_cost_of_revenues(soup, attributes: dict):
 
 
 def get_pl_gross_profit(soup, attributes: dict):
-    names = re.compile(f"^{NAMESPACE_GAAP}:GrossProfit$", re.IGNORECASE)
+    names = re.compile(f"{NAMESPACE_GAAP}:GrossProfit$", re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
         fs=FS_PL,
@@ -730,7 +803,7 @@ def get_pl_gross_profit(soup, attributes: dict):
 def get_pl_operating_expense_r_and_d(soup, attributes: dict):
     """Get the R&D expense"""
     names = re.compile(
-        rf"^{NAMESPACE_GAAP}:ResearchAndDevelopmentExpense$", re.IGNORECASE
+        rf"{NAMESPACE_GAAP}:ResearchAndDevelopmentExpense$", re.IGNORECASE
     )
     return represents(
         get_records_for_financial_element_names(soup, names, attributes=attributes),
@@ -742,7 +815,7 @@ def get_pl_operating_expense_r_and_d(soup, attributes: dict):
 def get_pl_operating_expense_selling_administrative(soup, attributes: dict):
     """Get the Administrative Expense (HanKanHi in JP)"""
     names = re.compile(
-        rf"^{NAMESPACE_GAAP}:SellingGeneralAndAdministrativeExpense$", re.IGNORECASE
+        rf"{NAMESPACE_GAAP}:SellingGeneralAndAdministrativeExpense$", re.IGNORECASE
     )
     return represents(
         get_records_for_financial_element_names(soup, names, attributes=attributes),
@@ -757,8 +830,11 @@ def get_pl_operating_expense_other(soup, attributes: dict):
     are associated with the entity's normal revenue producing operation
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:OtherCostAndExpenseOperating$",
-        rf"^{NAMESPACE_GAAP}:OthertCostOfOperatingRevenue$"
+        rf"{NAMESPACE_GAAP}:OtherCostAndExpenseOperating$",
+        rf"{NAMESPACE_GAAP}:OthertCostOfOperatingRevenue$",
+        rf"{NAMESPACE_GAAP}:MarketingExpense$",
+        rf"{NAMESPACE_GAAP}:LaborAndRelatedExpense$",
+        rf"{NAMESPACE_GAAP}:ProvisionForLoanLeaseAndOtherLosses$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes)
@@ -767,7 +843,7 @@ def get_pl_operating_expense_other(soup, attributes: dict):
 def get_pl_operating_expense_total(soup, attributes: dict):
     """Get the Total Operating Expenses"""
     names = re.compile(
-        rf"^{NAMESPACE_GAAP}:OperatingExpenses$", re.IGNORECASE
+        rf"{NAMESPACE_GAAP}:OperatingExpenses$", re.IGNORECASE
     )
     return represents(
         get_records_for_financial_element_names(
@@ -779,7 +855,7 @@ def get_pl_operating_expense_total(soup, attributes: dict):
 def get_pl_operating_income(soup, attributes: dict):
     """Operating Income = GrossProfit - Total Operating Expenses"""
     names = re.compile(
-        f"^{NAMESPACE_GAAP}:OperatingIncomeLoss$", re.IGNORECASE
+        f"{NAMESPACE_GAAP}:OperatingIncomeLoss$", re.IGNORECASE
     )
     return represents(
         get_records_for_financial_element_names(
@@ -812,7 +888,7 @@ def get_pl_non_operating_expense_interest(soup, attributes: dict):
     > over the life of a mortgage as illustrated by online calculators.
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:InterestExpense$",
+        rf"{NAMESPACE_GAAP}:InterestExpense$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -821,7 +897,7 @@ def get_pl_non_operating_expense_interest(soup, attributes: dict):
 
 def get_pl_non_operating_expense_other(soup, attributes: dict):
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:OtherNonOperatingIncomeExpense$",
+        rf"{NAMESPACE_GAAP}:OtherNonOperatingIncomeExpense$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -831,7 +907,7 @@ def get_pl_non_operating_expense_other(soup, attributes: dict):
 def get_pl_income_tax(soup, attributes: dict):
     """Income Tax"""
     names = re.compile(
-        f"^{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit$", re.IGNORECASE
+        f"{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit$", re.IGNORECASE
     )
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -843,8 +919,8 @@ def get_pl_net_income(soup, attributes: dict):
     Net Income = GrossProfit - (Operating Expenses + NonOperating Expense) - Tax
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:NetIncomeLoss$",
-        rf"^{NAMESPACE_GAAP}:ProfitLoss$",
+        rf"{NAMESPACE_GAAP}:NetIncomeLoss$",
+        rf"{NAMESPACE_GAAP}:ProfitLoss$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -868,8 +944,8 @@ def get_pl_eps(soup, attributes: dict):
     (https://money.stackexchange.com/questions/148015)
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:EarningsPerShareBasic$",
-        rf"^{NAMESPACE_GAAP}:EarningsPerShareBasicAndDiluted$",
+        rf"{NAMESPACE_GAAP}:EarningsPerShareBasic$",
+        rf"{NAMESPACE_GAAP}:EarningsPerShareBasicAndDiluted$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup,
@@ -889,7 +965,7 @@ def get_bs_current_asset_cash_and_equivalents(soup, attributes: dict):
     Look for the cash and cash equivalents for the reporting period
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:CashAndCashEquivalentsAtCarryingValue$",
+        rf"{NAMESPACE_GAAP}:CashAndCashEquivalentsAtCarryingValue$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -903,8 +979,8 @@ def get_bs_current_asset_cash_and_equivalents(soup, attributes: dict):
 def get_bs_current_asset_restricted_cash_and_equivalents(soup, attributes: dict):
     """Restricted Cash"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:RestrictedCashEquivalentsCurrent$",
-        rf"^{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsAtCarryingValue$",
+        rf"{NAMESPACE_GAAP}:RestrictedCashEquivalentsCurrent$",
+        rf"{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsAtCarryingValue$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -914,7 +990,7 @@ def get_bs_current_asset_restricted_cash_and_equivalents(soup, attributes: dict)
 def get_bs_current_asset_short_term_investments(soup, attributes: dict):
     """Short Term Investments"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:ShortTermInvestments$",
+        rf"{NAMESPACE_GAAP}:ShortTermInvestments$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -924,9 +1000,9 @@ def get_bs_current_asset_short_term_investments(soup, attributes: dict):
 def get_bs_current_asset_account_receivables(soup, attributes: dict):
     """Account Receivable"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:ReceivablesNetCurrent$",
-        rf"^{NAMESPACE_GAAP}:AccountsReceivableNetCurrent$",
-        rf"^{NAMESPACE_GAAP}:OtherReceivables$",
+        rf"{NAMESPACE_GAAP}:ReceivablesNetCurrent$",
+        rf"{NAMESPACE_GAAP}:AccountsReceivableNetCurrent$",
+        rf"{NAMESPACE_GAAP}:OtherReceivables$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -936,7 +1012,7 @@ def get_bs_current_asset_account_receivables(soup, attributes: dict):
 def get_bs_current_asset_inventory(soup, attributes: dict):
     """Inventory"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:InventoryNet$",
+        rf"{NAMESPACE_GAAP}:InventoryNet$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -978,10 +1054,10 @@ def get_bs_current_asset_inventory(soup, attributes: dict):
 # --------------------------------------------------------------------------------
 def get_bs_current_asset_other(soup, attributes: dict):
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:PrepaidExpenseCurrent$",
-        rf"^{NAMESPACE_GAAP}:PrepaidExpenseAndOtherAssetsCurrent$",
-        rf"^{NAMESPACE_GAAP}:OperatingLeaseRightOfUseAsset$",
-        rf"^{NAMESPACE_GAAP}:OtherAssetsCurrent$",
+        rf"{NAMESPACE_GAAP}:PrepaidExpenseCurrent$",
+        rf"{NAMESPACE_GAAP}:PrepaidExpenseAndOtherAssetsCurrent$",
+        rf"{NAMESPACE_GAAP}:OperatingLeaseRightOfUseAsset$",
+        rf"{NAMESPACE_GAAP}:OtherAssetsCurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -991,7 +1067,7 @@ def get_bs_current_asset_other(soup, attributes: dict):
 def get_bs_current_assets(soup, attributes: dict):
     """Total Current Assets"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:AssetsCurrent$",
+        rf"{NAMESPACE_GAAP}:AssetsCurrent$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -1008,7 +1084,7 @@ def get_bs_current_assets(soup, attributes: dict):
 def get_bs_non_current_asset_property_and_equipment(soup, attributes: dict):
     """Property, Plant, Equipment"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:PropertyPlantAndEquipmentNet$",
+        rf"{NAMESPACE_GAAP}:PropertyPlantAndEquipmentNet$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1018,7 +1094,7 @@ def get_bs_non_current_asset_property_and_equipment(soup, attributes: dict):
 def get_bs_non_current_asset_restricted_cash_and_equivalent(soup, attributes: dict):
     """Restricted Cash Non Current"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsNoncurrent$",
+        rf"{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsNoncurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1028,7 +1104,7 @@ def get_bs_non_current_asset_restricted_cash_and_equivalent(soup, attributes: di
 def get_bs_non_current_asset_deferred_income_tax(soup, attributes: dict):
     """Deferred Tax"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:DeferredIncomeTaxAssetsNet$",
+        rf"{NAMESPACE_GAAP}:DeferredIncomeTaxAssetsNet$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1038,7 +1114,7 @@ def get_bs_non_current_asset_deferred_income_tax(soup, attributes: dict):
 def get_bs_non_current_asset_goodwill(soup, attributes: dict):
     """GoodWill"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:GoodWill$",
+        rf"{NAMESPACE_GAAP}:GoodWill$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1048,8 +1124,8 @@ def get_bs_non_current_asset_goodwill(soup, attributes: dict):
 def get_bs_non_current_asset_other(soup, attributes: dict):
     """Intangible and Other Assets"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:IntangibleAssetsNetExcludingGoodwill$",
-        rf"^{NAMESPACE_GAAP}:OtherAssetsNoncurrent$",
+        rf"{NAMESPACE_GAAP}:IntangibleAssetsNetExcludingGoodwill$",
+        rf"{NAMESPACE_GAAP}:OtherAssetsNoncurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1059,7 +1135,7 @@ def get_bs_non_current_asset_other(soup, attributes: dict):
 def get_bs_total_assets(soup, attributes: dict):
     """Total Assets"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:Assets$",
+        rf"{NAMESPACE_GAAP}:Assets$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -1088,9 +1164,9 @@ def get_bs_current_liability_account_payable(soup, attributes: dict):
     (http://xbrlsite.azurewebsites.net/2019/Prototype/references/us-gaap/Element-354.html)
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:AccountsPayableCurrent$",
-        rf"^{NAMESPACE_GAAP}:AccruedLiabilitiesCurrent$",
-        rf"^{NAMESPACE_GAAP}:CapitalExpendituresIncurredButNotYetPaid$",
+        rf"{NAMESPACE_GAAP}:AccountsPayableCurrent$",
+        rf"{NAMESPACE_GAAP}:AccruedLiabilitiesCurrent$",
+        rf"{NAMESPACE_GAAP}:CapitalExpendituresIncurredButNotYetPaid$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1100,7 +1176,7 @@ def get_bs_current_liability_account_payable(soup, attributes: dict):
 def get_bs_current_liability_tax(soup, attributes: dict):
     """Tax"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:TaxesPayableCurrent$",
+        rf"{NAMESPACE_GAAP}:TaxesPayableCurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1110,7 +1186,7 @@ def get_bs_current_liability_tax(soup, attributes: dict):
 def get_bs_current_liability_longterm_debt(soup, attributes: dict):
     """Debt due to pay"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:LongTermDebtCurrent$",
+        rf"{NAMESPACE_GAAP}:LongTermDebtCurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1120,7 +1196,7 @@ def get_bs_current_liability_longterm_debt(soup, attributes: dict):
 def get_bs_current_liabilities(soup, attributes: dict):
     """Total Current Liabilities"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:LiabilitiesCurrent$",
+        rf"{NAMESPACE_GAAP}:LiabilitiesCurrent$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -1137,9 +1213,9 @@ def get_bs_current_liabilities(soup, attributes: dict):
 def get_bs_non_current_liability_longterm_debt(soup, attributes: dict):
     """Long Term Debt"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:LongTermDebt$",
-        rf"^{NAMESPACE_GAAP}:LongTermDebtNoncurrent$",
-        rf"^{NAMESPACE_GAAP}:LongTermLoansFromBank$",
+        rf"{NAMESPACE_GAAP}:LongTermDebt$",
+        rf"{NAMESPACE_GAAP}:LongTermDebtNoncurrent$",
+        rf"{NAMESPACE_GAAP}:LongTermLoansFromBank$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1149,7 +1225,7 @@ def get_bs_non_current_liability_longterm_debt(soup, attributes: dict):
 def get_bs_non_current_liability_deferred_tax(soup, attributes: dict):
     """Tax Deferred"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:DeferredIncomeTaxLiabilitiesNet$",
+        rf"{NAMESPACE_GAAP}:DeferredIncomeTaxLiabilitiesNet$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1169,10 +1245,10 @@ def get_bs_non_current_liability_other(soup, attributes: dict):
     (or beyond the operating cycle if longer).
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:PostemploymentBenefitsLiabilityNoncurrent$",
-        rf"^{NAMESPACE_GAAP}:PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesNoncurrent$",
-        rf"^{NAMESPACE_GAAP}:OperatingLeaseLiabilityNoncurrent$",
-        rf"^{NAMESPACE_GAAP}:OtherLiabilitiesNoncurrent$",
+        rf"{NAMESPACE_GAAP}:PostemploymentBenefitsLiabilityNoncurrent$",
+        rf"{NAMESPACE_GAAP}:PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesNoncurrent$",
+        rf"{NAMESPACE_GAAP}:OperatingLeaseLiabilityNoncurrent$",
+        rf"{NAMESPACE_GAAP}:OtherLiabilitiesNoncurrent$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1182,7 +1258,7 @@ def get_bs_non_current_liability_other(soup, attributes: dict):
 def get_bs_total_liabilities(soup, attributes: dict):
     """Total Liabilities"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:Liabilities$",
+        rf"{NAMESPACE_GAAP}:Liabilities$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -1217,9 +1293,9 @@ def get_bs_stockholders_equity_paid_in(soup, attributes: dict):
     receiving excess cash from stockholders.
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:CommonStockValue$",
-        rf"^{NAMESPACE_GAAP}:AdditionalPaidInCapitalCommonStock$",
-        rf"^{NAMESPACE_GAAP}:CommonStocksIncludingAdditionalPaidInCapital$",
+        rf"{NAMESPACE_GAAP}:CommonStockValue$",
+        rf"{NAMESPACE_GAAP}:AdditionalPaidInCapitalCommonStock$",
+        rf"{NAMESPACE_GAAP}:CommonStocksIncludingAdditionalPaidInCapital$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1236,8 +1312,8 @@ def get_bs_stockholders_equity_retained(soup, attributes: dict):
 
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:RetainedEarningsAppropriated$",
-        rf"^{NAMESPACE_GAAP}:RetainedEarningsAccumulatedDeficit$",
+        rf"{NAMESPACE_GAAP}:RetainedEarningsAppropriated$",
+        rf"{NAMESPACE_GAAP}:RetainedEarningsAccumulatedDeficit$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
@@ -1247,8 +1323,8 @@ def get_bs_stockholders_equity_retained(soup, attributes: dict):
 def get_bs_stockholders_equity_other(soup, attributes: dict):
     """Accumulated other comprehensive income/loss"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:AccumulatedOtherComprehensiveIncomeLossNetOfTax$",
-        rf"^{NAMESPACE_GAAP}:MinorityInterest$",
+        rf"{NAMESPACE_GAAP}:AccumulatedOtherComprehensiveIncomeLossNetOfTax$",
+        rf"{NAMESPACE_GAAP}:MinorityInterest$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes)
@@ -1262,8 +1338,8 @@ def get_bs_stockholders_equity(soup, attributes: dict):
     liabilities have been paid. (純資産)
     """
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:StockholdersEquity$",
-        rf"^{NAMESPACE_GAAP}:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest$",
+        rf"{NAMESPACE_GAAP}:StockholdersEquity$",
+        rf"{NAMESPACE_GAAP}:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
@@ -1277,7 +1353,7 @@ def get_bs_stockholders_equity(soup, attributes: dict):
 def get_bs_total_liabilities_and_stockholders_equity(soup, attributes: dict):
     """Total Liabilities + Stockholder's Equity"""
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:LiabilitiesAndStockholdersEquity$",
+        rf"{NAMESPACE_GAAP}:LiabilitiesAndStockholdersEquity$",
     ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(

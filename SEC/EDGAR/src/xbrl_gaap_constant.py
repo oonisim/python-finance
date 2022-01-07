@@ -2,12 +2,14 @@ NAMESPACE_GAAP = "us-gaap"
 GAAP_CREDIT_ITEMS = set(map(str.lower, [
     # P/L
     f"{NAMESPACE_GAAP}:Revenues",
-    f"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax",
+    f"{NAMESPACE_GAAP}:SalesRevenueNet",
+    f"{NAMESPACE_GAAP}:SalesRevenueGoodsNet",
     f"{NAMESPACE_GAAP}:DeferredRevenue",
     f"{NAMESPACE_GAAP}:RevenueMineralSales",
     f"{NAMESPACE_GAAP}:DeferredRevenueCurrent",
     f"{NAMESPACE_GAAP}:HealthCareOrganizationRevenue",
     f"{NAMESPACE_GAAP}:SalesRevenueGoodsGross",
+    f"{NAMESPACE_GAAP}:SalesRevenueServicesNet",
     f"{NAMESPACE_GAAP}:RealEstateRevenueNet",
     f"{NAMESPACE_GAAP}:SalesOfRealEstate",
     f"{NAMESPACE_GAAP}:AdvertisingRevenue",
@@ -18,9 +20,12 @@ GAAP_CREDIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:BrokerageCommissionsRevenue",
     f"{NAMESPACE_GAAP}:OtherNonoperatingIncomeExpense",  # Why this is in credit?
     f"{NAMESPACE_GAAP}:CashAndCashEquivalentsAtCarryingValue",
+    f"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax",
     f"{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue",
     f"{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue",
-    
+    f"{NAMESPACE_GAAP}:InvestmentIncomeInterest",
+    f"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles",
+
     # B/S (Assets)
     f"{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsNoncurrent",
     f"{NAMESPACE_GAAP}:RestrictedCashEquivalentsCurrent",
@@ -39,8 +44,8 @@ GAAP_CREDIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:OtherAssetsCurrent",
     f"{NAMESPACE_GAAP}:OtherAssetsNoncurrent",
     f"{NAMESPACE_GAAP}:OperatingLeaseRightOfUseAsset",
-    
-    
+
+
 ]))
 
 GAAP_DEBIT_ITEMS = set(map(str.lower, [
@@ -56,7 +61,10 @@ GAAP_DEBIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:OtherCostAndExpenseOperating",
     f"{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit",
     f"{NAMESPACE_GAAP}:InterestExpense",
-    
+    f"{NAMESPACE_GAAP}:MarketingExpense",
+    f"{NAMESPACE_GAAP}:LaborAndRelatedExpense",
+    f"{NAMESPACE_GAAP}:ProvisionForLoanLeaseAndOtherLosses",
+
     # B/S (Liabilities)
     f"{NAMESPACE_GAAP}:AccountsPayableCurrent",
     f"{NAMESPACE_GAAP}:CapitalExpendituresIncurredButNotYetPaid",
@@ -79,7 +87,7 @@ GAAP_DEBIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:RetainedEarningsAccumulatedDeficit",
     f"{NAMESPACE_GAAP}:AccumulatedOtherComprehensiveIncomeLossNetOfTax",
     f"{NAMESPACE_GAAP}:MinorityInterest",
-    
+
 ]))
 
 GAAP_CALC_ITEMS = set(map(str.lower, [
@@ -87,13 +95,13 @@ GAAP_CALC_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:OperatingExpenses",
     f"{NAMESPACE_GAAP}:GrossProfit",
     f"{NAMESPACE_GAAP}:OperatingIncomeLoss",
-    f"{NAMESPACE_GAAP}:ProfitLoss",    
-    f"{NAMESPACE_GAAP}:NetIncomeLoss",    
+    f"{NAMESPACE_GAAP}:ProfitLoss",
+    f"{NAMESPACE_GAAP}:NetIncomeLoss",
     f"{NAMESPACE_GAAP}:NonoperatingIncomeExpense",
 
     # B/S (Credit)
-    f"{NAMESPACE_GAAP}:AssetsCurrent",    
-    f"{NAMESPACE_GAAP}:Assets",    
+    f"{NAMESPACE_GAAP}:AssetsCurrent",
+    f"{NAMESPACE_GAAP}:Assets",
     # B/S (Debit/Liabilities)
     f"{NAMESPACE_GAAP}:LiabilitiesCurrent",
     f"{NAMESPACE_GAAP}:Liabilities",
@@ -101,7 +109,7 @@ GAAP_CALC_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:StockholdersEquity",
     f"{NAMESPACE_GAAP}:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
     f"{NAMESPACE_GAAP}:LiabilitiesAndStockholdersEquity",
-    
+
 ]))
 
 GAAP_METRIC_ITEMS = set(map(str.lower, [
@@ -114,4 +122,3 @@ GAAP_FACT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:CommonStockSharesOutstanding",
     f"{NAMESPACE_GAAP}:CommonStockOtherSharesOutstanding",
 ]))
-

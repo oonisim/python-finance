@@ -59,7 +59,7 @@ class EdgarXBRL(EdgarBase):
 
     @staticmethod
     def output_xml_suffix_default():
-        return ".xml.gz"
+        return ".gz"
 
     def xml_relative_path_to_save(self, directory: str, basename: str):
         """

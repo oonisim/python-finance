@@ -19,6 +19,7 @@ DF_COLUMN_DATE_FILED = 'Date Filed'
 DF_COLUMN_FILENAME = "Filename"
 DF_COLUMN_FILEPATH = "Filepath"
 
+DF_COLUMN_ACCESSION = "Accession"
 DF_COLUMN_YEAR = "Year"
 DF_COLUMN_QTR = "Quarter"
 DF_COLUMN_FS = "FS"

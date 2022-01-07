@@ -1,3 +1,4 @@
+import gzip
 import logging
 import os
 import re
@@ -15,6 +16,9 @@ from bs4 import BeautifulSoup
 from sec_edgar_base import (
     EdgarBase
 )
+from sec_edgar_common import (
+    filename_extension,
+)
 from sec_edgar_constant import (
     # DIR
     DIR_DATA_CSV_XBRL,
@@ -27,6 +31,7 @@ from sec_edgar_constant import (
     DF_COLUMN_DATE_FILED,
     DF_COLUMN_FILENAME,
     DF_COLUMN_FILEPATH,
+    DF_COLUMN_ACCESSION,
     DF_COLUMN_FS,
     DF_COLUMN_YEAR,
     DF_COLUMN_QTR,
@@ -34,6 +39,7 @@ from sec_edgar_constant import (
 )
 from xbrl_gaap_function import (
     get_company_name,
+    get_date_from_xbrl_filename,
     get_attributes_to_select_target_fs_elements,
     get_financial_element_columns,
     # sed -n 's/^def \(get_pl_.*\)(.*/\1,/p'
@@ -127,7 +133,7 @@ BS_FUNCTIONS: List[Callable] = [
 ]
 
 
-class EdgarGapp(EdgarBase):
+class EdgarGAAP(EdgarBase):
     # ================================================================================
     # Init
     # ================================================================================
@@ -143,7 +149,7 @@ class EdgarGapp(EdgarBase):
 
     @staticmethod
     def input_csv_suffix_default():
-        return "_LIST.gz"
+        return "_XBRL.gz"
 
     @staticmethod
     def input_xml_directory_default():
@@ -155,23 +161,27 @@ class EdgarGapp(EdgarBase):
 
     @staticmethod
     def output_csv_suffix_default():
-        return "_XBRL.gz"
+        return "_GAAP.gz"
+
+    @staticmethod
+    def output_xml_directory_default():
+        return "N/A"
 
     @staticmethod
     def output_xml_suffix_default():
-        return ".xml.gz"
+        return "N/A"
 
     @staticmethod
     def validate_year_qtr(row, year, qtr):
-        assert year == row[DF_COLUMN_YEAR], \
+        assert str(year) == str(row[DF_COLUMN_YEAR]), \
             "Year mismatch. msg['year'] is [%s] but row['year'] is [%s]." % \
             (year, row[DF_COLUMN_YEAR])
-        assert qtr == row[DF_COLUMN_QTR], \
+        assert str(qtr) == str(row[DF_COLUMN_QTR]), \
             "Year mismatch. msg['qtr'] is [%s] but row['qtr'] is [%s]." % \
             (qtr, row[DF_COLUMN_QTR])
 
     @staticmethod
-    def load_from_xml(filepath:str) -> str:
+    def load_from_xml(filepath: str) -> str:
         """Load the XML contents from the filepath
         Args:
             filepath: path to the XML file
@@ -179,8 +189,15 @@ class EdgarGapp(EdgarBase):
         """
         logging.debug("load_from_xml(): loading XML from [%s]" % filepath)
         try:
-            with open(filepath, "r") as f:
-                content = f.read()
+            extension = filename_extension(filepath)
+            if extension == ".gz" or extension == ".gip":
+                with gzip.open(filepath, "rb") as f:
+                    bytes = f.read()
+                    content = bytes.decode("utf-8")
+            else:
+                with open(filepath, "r") as f:
+                    content = f.read()
+
         except OSError as e:
             logging.error(
                 "load_from_xml():failed to read [%s] for [%s]." % (filepath, e)
@@ -205,6 +222,16 @@ class EdgarGapp(EdgarBase):
         source = BeautifulSoup(xml, 'html.parser')
         del xml
         return source
+
+    @staticmethod
+    def get_accession_from_xbrl_filepath(filepath):
+        """Get the filing accession id
+        The XBRL XML file path has the format
+        ${DIR_DATA_CSV_GAAP}/{CIK}/{ACCESSION}/<filename>.xml.gz
+        """
+        accession = filepath.split(os.sep)[-2]
+        logging.debug("get_accession_from_xbrl_filepath(): accession is [%s]" % accession)
+        return accession
 
     @staticmethod
     def get_PL(xbrl: bs4.BeautifulSoup, attributes: dict) -> List[List[str]]:
@@ -233,17 +260,20 @@ class EdgarGapp(EdgarBase):
         return list(itertools.chain(*[f(xbrl, attributes) for f in BS_FUNCTIONS]))
 
     @staticmethod
-    def prepend_cik(fs: List[List[str]], cik: str) -> List[List[str]]:
+    def prepend_cik_accession(
+            fs: List[List[str]], cik: str, accession: str
+    ) -> List[List[str]]:
         """Prepend the CIK column to make the rows in the format
-        |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        |CIK|ACCESSION|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
         for row in fs:
+            row.insert(0, accession)
             row.insert(0, cik)
 
-        logging.debug("prepend_cik(): First row of FS:\n[%s]" % fs[0])
+        logging.debug("prepend_cik_accession(): First row of FS:\n[%s]" % fs[0])
         return fs
 
-    def generate_financial_statement(self, msg: dict, row: dict) -> List[List[str]]:
+    def generate_financial_statement(self, msg: dict, row) -> List[List[str]]:
         """Generate a list of financial statement elements
         Args:
             msg: message
@@ -252,29 +282,28 @@ class EdgarGapp(EdgarBase):
             List of FS records with the format:
             |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
-        assert isinstance(row, dict)
-
         # --------------------------------------------------------------------------------
         # Get XBRL XML as the source
         # --------------------------------------------------------------------------------
         filepath = f"{msg['input_xml_directory']}{os.sep}{row[DF_COLUMN_FILEPATH]}"
         xbrl = self.load_xbrl(filepath)
 
+        cik = row[DF_COLUMN_CIK]
+        year = row[DF_COLUMN_YEAR]
+        qtr = row[DF_COLUMN_QTR]
+        logging.info(
+            "generate_financial_statement(): processing CIK[%s],company[%s],year[%s],qtr[%s]" %
+            (cik, get_company_name(xbrl), year, qtr)
+        )
+
         # --------------------------------------------------------------------------------
         # Retrieve XML element attributes to extract the target XBRL XML elements
         # that are related to the filing report period.
         # --------------------------------------------------------------------------------
         form_type = row[DF_COLUMN_FORM_TYPE]
+        date_from_xbrl_filename = get_date_from_xbrl_filename(filepath)
         attributes = get_attributes_to_select_target_fs_elements(
-            soup=xbrl, form_type=form_type
-        )
-
-        cik = row[DF_COLUMN_CIK]
-        year = row[DF_COLUMN_YEAR]
-        qtr = row[DF_COLUMN_QTR]
-        logging.debug(
-            "processing CIK[%s],company[%s],year[%s],qtr[%s]" %
-            (cik, get_company_name(xbrl), year, qtr)
+            soup=xbrl, form_type=form_type, date_from_xbrl_filename=date_from_xbrl_filename
         )
 
         # --------------------------------------------------------------------------------
@@ -293,17 +322,19 @@ class EdgarGapp(EdgarBase):
         assert len(bs) > 0, \
             "No BS element found for CIK[%s] Year[%s] QTR[%s]" % \
             (cik, year, qtr)
+
         logging.debug("generate_financial_statement(): First row of the B/S:\n[%s]" % bs[0])
 
         del xbrl
-        fs = self.prepend_cik(pl + bs, cik)
+        accession = self.get_accession_from_xbrl_filepath(filepath)
+        fs = self.prepend_cik_accession(pl + bs, cik, accession)
         return fs
 
     @staticmethod
     def create_df_FS(financial_statements: List[List[str]], year: str, qtr: str):
         """Generate the dataframe for the financial statements
         Record in financial_statements should have the format
-        |CIK|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        |CIK|Accession|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
 
         Args:
             financial_statements: list of FS records
@@ -318,21 +349,22 @@ class EdgarGapp(EdgarBase):
             "Unexpected columns. Verify if [%s] are correct order" % columns
 
         # --------------------------------------------------------------------------------
-        # Append DF_COLUMN_CIK and create a dataframe with the format:
-        # |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        # Append DF_COLUMN_CIK and DF_COLUMN_ACCESSION to create a dataframe with the format:
+        # |CIK|Accession|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         # --------------------------------------------------------------------------------
+        columns.insert(0, DF_COLUMN_ACCESSION)
         columns.insert(0, DF_COLUMN_CIK)
         df_FS: pd.DataFrame = pd.DataFrame(financial_statements, columns=columns)
         assert df_FS is not None and len(df_FS) > 0, "Invalid df_FS"
 
         # --------------------------------------------------------------------------------
         # Insert year/qtr as categorical columns to generate the format:
-        # |CIK|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        # |CIK|Accession|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         # Use int for year/qtr to limit the storage size 4 bytes for each column as
         # utf-8 string can take more bytes.
         # --------------------------------------------------------------------------------
         df_FS.insert(
-            loc=df_FS.columns.get_loc(DF_COLUMN_CIK)+1, column=DF_COLUMN_YEAR,
+            loc=df_FS.columns.get_loc(DF_COLUMN_ACCESSION)+1, column=DF_COLUMN_YEAR,
             value=pd.Categorical([int(year)]*num_rows)
         )
         df_FS.insert(
@@ -388,7 +420,10 @@ class EdgarGapp(EdgarBase):
         # --------------------------------------------------------------------------------
         logging.basicConfig(level=log_level)
         logging.debug("worker(): task size is %s" % len(df))
-        logging.debug("year [%s] qtr [%s] worker(): df[:5]:\n%s" % (year, qtr, df.head(5)))
+        logging.debug(
+            "worker(): Sampling 3 rows from DF received for year[%s] qtr[%s]:\n%s"
+            % (year, qtr, df.head(3))
+        )
 
         # --------------------------------------------------------------------------------
         # Drop irrelevant columns
@@ -417,3 +452,35 @@ class EdgarGapp(EdgarBase):
         # Generate dataframe of financial statements.
         # --------------------------------------------------------------------------------
         return self.create_df_FS(financial_statements, year=year, qtr=qtr)
+
+    @staticmethod
+    def compose_package_to_dispatch_to_worker(msg: dict, task: pd.DataFrame):
+        year = msg['year']
+        qtr = msg['qtr']
+        input_xml_directory = msg["input_xml_directory"]
+        log_level = msg['log_level']
+
+        return {
+            "data": task,
+            "year": year,
+            "qtr": qtr,
+            "input_xml_directory": input_xml_directory,
+            "log_level": log_level
+        }
+
+    @staticmethod
+    def report_result(msg, result: pd.DataFrame, need_result_data=False) -> str:
+        # --------------------------------------------------------------------------------
+        # List failed records with 'Filepath' column being None as failed to get XBRL
+        # --------------------------------------------------------------------------------
+        record_counts = f"Processed [{len(result)}]."
+        report = record_counts
+
+        return report
+
+
+# --------------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------------
+if __name__ == "__main__":
+    EdgarGAAP().main()

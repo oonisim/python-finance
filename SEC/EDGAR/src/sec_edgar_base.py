@@ -113,6 +113,7 @@ from typing import (
 
 import pandas as pd
 import ray
+import time
 
 from sec_edgar_common import (
     list_csv_files,
@@ -166,9 +167,10 @@ class EdgarBase:
         # --------------------------------------------------------------------------------
         # Pandas
         # --------------------------------------------------------------------------------
-        pd.set_option('display.max_colwidth', None)
         pd.set_option('display.float_format', lambda x: ('%f' % x).rstrip('0').rstrip('.'))
         pd.set_option('display.colheader_justify', 'center')
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.max_colwidth', None)
 
     # ================================================================================
     # Utility
@@ -266,9 +268,11 @@ class EdgarBase:
             help='specify the number of workers to use'
         )
         parser.add_argument(
-            '-l', '--log-level', type=int, choices=[10, 20, 30, 40], required=False,
+            '-l', '--log-level', type=int,
+            choices=[logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR],
+            required=False,
             default=DEFAULT_LOG_LEVEL,
-            help='specify the logging level (10 for INFO)',
+            help='specify the logging level (20 for INFO)',
         )
         parser.add_argument(
             '-t', '--test-mode', action="store_true",
@@ -282,9 +286,11 @@ class EdgarBase:
 
         # Directories
         args['input_csv_directory'] = os.path.realpath(args['input_csv_directory'])
-        args['input_xml_directory'] = os.path.realpath(args['input_xml_directory'])
+        args['input_xml_directory'] = os.path.realpath(args['input_xml_directory']) \
+            if args['input_xml_directory'] else None
         args['output_csv_directory'] = os.path.realpath(args['output_csv_directory'])
-        args['output_xml_directory'] = os.path.realpath(args['output_xml_directory'])
+        args['output_xml_directory'] = os.path.realpath(args['output_xml_directory']) \
+            if args['output_xml_directory'] else None
         assert os.path.isdir(args['input_csv_directory'])
         # Valid output directory (cannot check until the directory is created)
         # assert os.path.isdir(args['output_csv_directory'])
@@ -529,4 +535,5 @@ class EdgarBase:
             # Clean up resource
             # --------------------------------------------------------------------------------
             logging.info("main(): shutting down Ray...")
+            time.sleep(3)
             ray.shutdown()

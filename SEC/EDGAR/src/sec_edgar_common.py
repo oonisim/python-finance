@@ -2,6 +2,7 @@ import glob
 import logging
 import os
 
+import dateutil
 import pandas as pd
 import requests
 
@@ -12,6 +13,15 @@ def filename_basename(filename):
 
 def filename_extension(filename):
     return os.path.splitext(filename)[1]
+
+
+def has_date_format(date):
+    """Check if the date has date/time format"""
+    try:
+        dateutil.parser.parse(date)
+        return True
+    except ValueError as e:
+        return False
 
 
 def split(tasks: pd.DataFrame, num: int):

@@ -61,7 +61,7 @@ class EdgarList(EdgarBase):
 
     @staticmethod
     def output_xml_directory_default():
-        return "N/A"
+        return None
 
     def input_filename_pattern(self):
         """Generate glob pattern to find the input files"""
