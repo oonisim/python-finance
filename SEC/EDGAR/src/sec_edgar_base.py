@@ -408,8 +408,9 @@ class EdgarBase:
 
         # --------------------------------------------------------------------------------
         # Test debug configurations
+        # - Limit 3 records per worker.
         # --------------------------------------------------------------------------------
-        df = df.head(NUM_CPUS) if test_mode else df
+        df = df.head(3 * num_workers) if test_mode else df
 
         # --------------------------------------------------------------------------------
         # Asynchronously invoke tasks

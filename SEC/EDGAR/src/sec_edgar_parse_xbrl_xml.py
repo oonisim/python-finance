@@ -260,17 +260,20 @@ class EdgarGAAP(EdgarBase):
         return list(itertools.chain(*[f(xbrl, attributes) for f in BS_FUNCTIONS]))
 
     @staticmethod
-    def prepend_cik_accession(
-            fs: List[List[str]], cik: str, accession: str
+    def prepend_columns(
+            fs: List[List[str]], columns: List[str]
     ) -> List[List[str]]:
-        """Prepend the CIK column to make the rows in the format
-        |CIK|ACCESSION|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        """Prepend the columns to annotate each record e.g. with CIK, Form Type, etc.
         """
         for row in fs:
-            row.insert(0, accession)
-            row.insert(0, cik)
+            # Add reverse order e.g. if columns are CIK, Accession, ...:
+            # 1. add accession at 0
+            # 2. add cik at 0
+            # Then it will be cik|accession|...
+            for col in columns[::-1]:
+                row.insert(0, col)
 
-        logging.debug("prepend_cik_accession(): First row of FS:\n[%s]" % fs[0])
+        logging.debug("prepend_columns(): First row of FS:\n[%s]" % fs[0])
         return fs
 
     def generate_financial_statement(self, msg: dict, row) -> List[List[str]]:
@@ -280,7 +283,7 @@ class EdgarGAAP(EdgarBase):
             row: |CIK|Form Type|Date Filed|Year|Quarter|Filename|Filepath|
         Returns:
             List of FS records with the format:
-            |CIK|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+            |CIK|Accession|Form Type|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
         # --------------------------------------------------------------------------------
         # Get XBRL XML as the source
@@ -289,25 +292,25 @@ class EdgarGAAP(EdgarBase):
         xbrl = self.load_xbrl(filepath)
 
         cik = row[DF_COLUMN_CIK]
+        form_type = row[DF_COLUMN_FORM_TYPE]
         year = row[DF_COLUMN_YEAR]
         qtr = row[DF_COLUMN_QTR]
         logging.info(
-            "generate_financial_statement(): processing CIK[%s],company[%s],year[%s],qtr[%s]" %
-            (cik, get_company_name(xbrl), year, qtr)
+            "generate_financial_statement(): processing CIK[%s],company[%s],form[%s],year[%s],qtr[%s]" %
+            (cik, get_company_name(xbrl), form_type, year, qtr)
         )
 
         # --------------------------------------------------------------------------------
         # Retrieve XML element attributes to extract the target XBRL XML elements
         # that are related to the filing report period.
         # --------------------------------------------------------------------------------
-        form_type = row[DF_COLUMN_FORM_TYPE]
         date_from_xbrl_filename = get_date_from_xbrl_filename(filepath)
         attributes = get_attributes_to_select_target_fs_elements(
             soup=xbrl, form_type=form_type, date_from_xbrl_filename=date_from_xbrl_filename
         )
 
         # --------------------------------------------------------------------------------
-        # Extract P/L elements from the XBRL XML
+        # Extract P/L (Income Statement) elements from the XBRL XML
         # --------------------------------------------------------------------------------
         pl = self.get_PL(xbrl=xbrl, attributes=attributes)
         assert len(pl) > 0, \
@@ -327,14 +330,14 @@ class EdgarGAAP(EdgarBase):
 
         del xbrl
         accession = self.get_accession_from_xbrl_filepath(filepath)
-        fs = self.prepend_cik_accession(pl + bs, cik, accession)
+        fs = self.prepend_columns(pl + bs, [cik, accession, form_type])
         return fs
 
     @staticmethod
     def create_df_FS(financial_statements: List[List[str]], year: str, qtr: str):
         """Generate the dataframe for the financial statements
         Record in financial_statements should have the format
-        |CIK|Accession|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        |CIK|Accession|Form_type|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
 
         Args:
             financial_statements: list of FS records
@@ -343,19 +346,25 @@ class EdgarGAAP(EdgarBase):
         Returns: Dataframe of the financial statement records
         """
         num_rows = len(financial_statements)
+
+        # --------------------------------------------------------------------------------
+        # Build columns for dataframe
+        # --------------------------------------------------------------------------------
         columns: List[str] = get_financial_element_columns()
         assert num_rows > 0, "create_df_FS(): No element. year[%s] qtr[%s]" % (year, qtr)
         assert columns[0] == DF_COLUMN_FS and columns[-1] == DF_COLUMN_CONTEXT, \
             "Unexpected columns. Verify if [%s] are correct order" % columns
 
+        # Prepend columns to create a dataframe with the format:
+        # |CIK|Accession|Form Type|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        for col in [DF_COLUMN_CIK, DF_COLUMN_ACCESSION, DF_COLUMN_FORM_TYPE][::-1]:
+            columns.insert(0, col)
+
         # --------------------------------------------------------------------------------
-        # Append DF_COLUMN_CIK and DF_COLUMN_ACCESSION to create a dataframe with the format:
-        # |CIK|Accession|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        # Create dataframe + convert categorical
         # --------------------------------------------------------------------------------
-        columns.insert(0, DF_COLUMN_ACCESSION)
-        columns.insert(0, DF_COLUMN_CIK)
         df_FS: pd.DataFrame = pd.DataFrame(financial_statements, columns=columns)
-        assert df_FS is not None and len(df_FS) > 0, "Invalid df_FS"
+        df_FS[DF_COLUMN_FORM_TYPE] = df_FS[DF_COLUMN_FORM_TYPE].astype('category')
 
         # --------------------------------------------------------------------------------
         # Insert year/qtr as categorical columns to generate the format:

@@ -33,7 +33,7 @@ def split(tasks: pd.DataFrame, num: int):
     """
     assert num > 0
     assert len(tasks) > 0
-    logging.debug(f"createing {num} assignments for {len(tasks)} tasks")
+    logging.debug(f"split(): splitting {len(tasks)} tasks into {num} assignments.")
 
     # Total size of the tasks
     total = len(tasks)
@@ -42,14 +42,14 @@ def split(tasks: pd.DataFrame, num: int):
     quota = int(total / num)
 
     # Left over after each assignment takes its 'quota'
-    redisual = total % num
+    residual = total % num
 
     start = 0
     while start < total:
-        # As long as redisual is there, each assginemt has (quota + 1) as its tasks.
-        if redisual > 0:
+        # As long as residual is there, each assginemt has (quota + 1) as its tasks.
+        if residual > 0:
             size = quota + 1
-            redisual -= 1
+            residual -= 1
         else:
             size = quota
 
