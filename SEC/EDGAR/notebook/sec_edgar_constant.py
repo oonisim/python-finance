@@ -43,8 +43,8 @@ FS_ITEM_REP_CURRENT_ASSETS = "current_assets"
 FS_ITEM_REP_TOTAL_ASSETS = "total_assets"
 FS_ITEM_REP_CURRENT_LIABILITIES = "current_liabilities"
 FS_ITEM_REP_LIABILITIES = "total_liabilities"
-FS_ITEM_REP_SE = "stockholders_equity"
-FS_ITEM_REP_TOTAL_EQUITY = "total_equity"
+FS_ITEM_REP_EQUITY = "stockholders_equity"       # Total Equity
+FS_ITEM_REP_EQUITY_AND_LIABILITIES = "total_equity_and_liabilities"
 
 # --------------------------------------------------------------------------------
 # Platform
