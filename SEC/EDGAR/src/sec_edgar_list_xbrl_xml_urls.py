@@ -360,7 +360,7 @@ class EdgarList(EdgarBase):
         #  be configured on per task/actor basis.
         # --------------------------------------------------------------------------------
         logging.basicConfig(level=log_level)
-        logging.info("worker(): task size is %s" % len(df))
+        logging.debug("worker(): task size is %s" % len(df))
 
         # --------------------------------------------------------------------------------
         # Update the 'Filename' column with the URL to index.xml

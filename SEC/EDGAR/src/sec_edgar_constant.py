@@ -49,11 +49,11 @@ FS_ELEMENT_TYPE_CALC = 'calc'          # calculated value e.g. sub total
 FS_ELEMENT_REP_SHARES_OUTSTANDING = "shares_outstanding"
 # PL
 FS_ELEMENT_REP_REVENUE = "revenue"
-FS_ELEMENT_REP_OP_COST = "operating_cost"                 # Operating Cost
+FS_ELEMENT_REP_OP_COST = "operating_cost"          # Operating Cost
 FS_ELEMENT_REP_OP_INCOME = "operating_income"
 FS_ELEMENT_REP_GROSS_PROFIT = "gross_profit"
-FS_ELEMENT_REP_OPEX_RD = "operating_expense_rd"              # R/D Expeense
-FS_ELEMENT_REP_OPEX_SGA = "operating_expense_sga"                 # Sales and Administrative Expense
+FS_ELEMENT_REP_OPEX_RD = "operating_expense_rd"    # R/D Expeense
+FS_ELEMENT_REP_OPEX_SGA = "operating_expense_sga"  # Sales and Administrative Expense
 FS_ELEMENT_REP_OPEX = "operating_expense"
 FS_ELEMENT_REP_NET_INCOME = "net_income"
 FS_ELEMENT_REP_EPS = "eps"
@@ -63,8 +63,8 @@ FS_ELEMENT_REP_CURRENT_ASSETS = "current_assets"
 FS_ELEMENT_REP_TOTAL_ASSETS = "total_assets"
 FS_ELEMENT_REP_CURRENT_LIABILITIES = "current_liabilities"
 FS_ELEMENT_REP_LIABILITIES = "total_liabilities"
-FS_ELEMENT_REP_SE = "stockholders_equity"
-FS_ELEMENT_REP_TOTAL_EQUITY = "total_equity"
+FS_ELEMENT_REP_EQUITY = "stockholders_equity"       # Total Equity
+FS_ELEMENT_REP_EQUITY_AND_LIABILITIES = "total_equity_and_liabilities"
 
 # --------------------------------------------------------------------------------
 # Platform
@@ -84,8 +84,8 @@ DIR_DATA = os.path.realpath(f"{DIR}/../data/")
 DIR_DATA_CSV_INDEX = os.path.realpath(f"{DIR_DATA}/csv/index")
 DIR_DATA_CSV_LIST = os.path.realpath(f"{DIR_DATA}/csv/listing")
 DIR_DATA_CSV_XBRL = os.path.realpath(f"{DIR_DATA}/csv/xbrl")
+DIR_DATA_CSV_GAAP = os.path.realpath(f"{DIR_DATA}/csv/gaap")
 DIR_DATA_XML_XBRL = os.path.realpath(f"{DIR_DATA}/xml/xbrl")
-
 
 """
 # OPTICAL CABLE CORPORATION 10-K for the fiscal year ended October 31, 2021

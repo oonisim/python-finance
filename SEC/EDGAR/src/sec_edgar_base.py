@@ -182,6 +182,10 @@ class EdgarBase:
         raise NotImplementedError("TBD")
 
     @staticmethod
+    def input_xml_directory_default():
+        return None
+
+    @staticmethod
     def output_csv_directory_default():
         raise NotImplementedError("TBD")
 
@@ -207,12 +211,17 @@ class EdgarBase:
         parser.add_argument(
             '-ic', '--input-csv-directory', type=str, required=False,
             default=self.input_csv_directory_default(),
-            help='specify the input data directory'
+            help='specify the input CSV directory'
         )
         parser.add_argument(
-            '-is', '--input-csv-suffix', type=str, required=False,
+            '-ics', '--input-csv-suffix', type=str, required=False,
             default=self.input_csv_suffix_default(),
-            help=f'specify the input filename suffix e.g {self.input_csv_suffix_default()}'
+            help=f'specify the input csv filename suffix e.g {self.input_csv_suffix_default()}'
+        )
+        parser.add_argument(
+            '-ix', '--input-xml-directory', type=str, required=False,
+            default=self.input_xml_directory_default(),
+            help='specify the input XML directory'
         )
         parser.add_argument(
             '-oc', '--output-csv-directory', type=str, required=False,
@@ -273,6 +282,7 @@ class EdgarBase:
 
         # Directories
         args['input_csv_directory'] = os.path.realpath(args['input_csv_directory'])
+        args['input_xml_directory'] = os.path.realpath(args['input_xml_directory'])
         args['output_csv_directory'] = os.path.realpath(args['output_csv_directory'])
         args['output_xml_directory'] = os.path.realpath(args['output_xml_directory'])
         assert os.path.isdir(args['input_csv_directory'])

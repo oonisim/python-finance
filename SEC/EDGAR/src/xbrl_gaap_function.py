@@ -1,34 +1,9 @@
 """
-## XBRL Element
-
-* [XBRL Glossary of Terms](https://www.sec.gov/page/osd_xbrlglossary)
-* [XBRL - What is us-gaap:OperatingSegmentsMember element anb where is it defined?](https://money.stackexchange.com/questions/148010/xbrl-what-is-us-gaapoperatingsegmentsmember-element-anb-where-is-it-defined)
-
-### Example
-For instance, Qorvo 2020 10K
-
-* [XBRL/rfmd-20210403_htm.xml](https://www.sec.gov/Archives/edgar/data/1604778/000160477821000032/rfmd-20210403_htm.xml)
-* [HTML/rfmd-20210403.htm)](https://www.sec.gov/Archives/edgar/data/1604778/000160477821000032/rfmd-20210403.htm):
-
-```
-<us-gaap:cashandcashequivalentsatcarryingvalue contextref="*" decimals="-3" id="..." unitref="usd">
-  1397880000
-</us-gaap:cashandcashequivalentsatcarryingvalue>,
-<us-gaap:cashandcashequivalentsatcarryingvalue contextref="***" decimals="-3" id="..." unitref="usd">
-  714939000
-</us-gaap:cashandcashequivalentsatcarryingvalue>,
-<us-gaap:cashandcashequivalentsatcarryingvalue contextref="***" decimals="-3" id="..." unitref="usd">
- 711035000
-</us-gaap:cashandcashequivalentsatcarryingvalue>
-```
+Functions to extract the XBRL XML elements of us-GAAP
 """
 import datetime
 import logging
 import re
-from typing import (
-    List,
-    Callable
-)
 
 import bs4
 import dateutil
@@ -64,8 +39,9 @@ from sec_edgar_constant import (
     FS_ELEMENT_REP_TOTAL_ASSETS,
     FS_ELEMENT_REP_CURRENT_LIABILITIES,
     FS_ELEMENT_REP_LIABILITIES,
-    FS_ELEMENT_REP_TOTAL_EQUITY,
+    FS_ELEMENT_REP_EQUITY,
     FS_ELEMENT_REP_SHARES_OUTSTANDING,
+    FS_ELEMENT_REP_EQUITY_AND_LIABILITIES,
 )
 from xbrl_gaap_constant import (
     NAMESPACE_GAAP,
@@ -77,10 +53,6 @@ from xbrl_gaap_constant import (
 )
 
 REGEXP_NUMERIC = re.compile(r"\s*[\d.-]*\s*")
-
-BS_FUNCTIONS: List[Callable] = [
-
-]
 
 
 # ================================================================================
@@ -121,7 +93,7 @@ def get_element_hash(element):
 def get_company_name(soup):
     """Get company (registrant) name from the XBRL"""
     registrant_name = soup.find(
-        name=re.compile("dei:EntityRegistrantName".lower(), re.I)
+        name=re.compile("dei:EntityRegistrantName", re.IGNORECASE)
     ).string.strip()
     assert registrant_name, f"No registrant name found"
 
@@ -234,23 +206,36 @@ def get_company_name(soup):
 #
 # For now, just get the period from the 1st **period** element.
 # --------------------------------------------------------------------------------
-def get_report_period_end_date(soup):
+def get_report_period_end_date(soup) -> str:
     """Identify the end date of the report period from the first "context" tag
     in the XBRL that has <period><startDate> tag as its child tag.
 
+    [Assumption]
+    Context identifies a date which can be current period or previous
+    because FS has both e.g. 2020 is current but 2019 is there as well.
+    In addition, multiple contexts can be used to refer to the FS elements
+    in the same period.
+
+    Hence, we need to identify which context defines the start date and
+    end date of the filing.
+
+    There is no clearly defined rule to identify, hence assume that the
+    first Context that appears in the XBRL XML is the one.
+
+    [Example]
     <context id="ifb6ce67cf6954ebf88471dd82daa9247_D20200329-20210403">
         <entity>
         <identifier scheme="http://www.sec.gov/CIK">0001604778</identifier>
         </entity>
         <period>
             <startDate>2020-03-29</startDate>
-            <endDate>2021-04-03</endDate>        # <-----
+            <endDate>2021-04-03</endDate>        # <----- period end date
         </period>
     </context>
 
     Args:
         soup: Source BS4
-    Returns: reporting period e.g. "2021-09-30"
+    Returns: reporting period in string e.g. "2021-09-30"
     Raises:
         RuntimeError: when the report period date is invalid
     """
@@ -260,14 +245,22 @@ def get_report_period_end_date(soup):
             first_context = context
             break
 
-    assert first_context is not None, "No period found"
+    # --------------------------------------------------------------------------------
+    # The end date of the current report period is mandatory, without which
+    # we cannot process the filing XBRL.
+    # --------------------------------------------------------------------------------
+    if first_context is None:
+        raise RuntimeError("No Context found to identify the current report period end date.")
     end_date = first_context.find('period').find('enddate').text.strip()
 
+    # --------------------------------------------------------------------------------
+    # Validate date/time string format
+    # --------------------------------------------------------------------------------
     try:
         dateutil.parser.parse(end_date)
     except ValueError as e:
         logging.error(
-            "get_report_period_end_date(): invalid report period end date [%s] in context [%s]" %
+            "get_report_period_end_date(): invalid end date[%s] in context\n[%s]" %
             (end_date, first_context)
         )
         raise RuntimeError("get_report_period_end_date()") from e
@@ -280,7 +273,9 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
     Extract all the contexts that refer to the reporting period of the filing.
 
     XBRL (10-K,10-Q) uses multiple contexts to refer to the F/S items in the
-    reporting period. Collect all the contexts for the period.
+    reporting period. Some Contexts refer to the current period but others
+    refer to previous. Hence, need to identify the Contexts that refer to the
+    current only.
 
     [Example]
     Context ID="ifb6ce67cf6954ebf88471dd82daa9247_D20200329-20210403" for the
@@ -325,7 +320,7 @@ def get_target_context_ids(soup, period_end_date: str, form_type: str):
     if form_type == SEC_FORM_TYPE_10K:
         duration = datetime.timedelta(days=365)
     elif form_type == SEC_FORM_TYPE_10Q:
-        datetime.timedelta(days=90)
+        duration = datetime.timedelta(days=90)
     else:
         assert f"The form type {form_type} is not currently supported"
 
@@ -493,7 +488,7 @@ def get_attributes_to_select_target_fs_elements(
     return attributes
 
 
-def find_financial_elements(soup, element_names, attributes):
+def find_financial_elements(soup, element_names: re.Pattern, attributes: dict):
     """Find the financial statement elements from the XML/HTML source.
     Args:
         soup: BS4 source
@@ -503,11 +498,12 @@ def find_financial_elements(soup, element_names, attributes):
         List of BS4 tag objects that matched the element_names and attributes.
     """
     assert isinstance(soup, BeautifulSoup)
-    assert isinstance(element_names, re.Pattern) or isinstance(element_names, str)
+    # assert isinstance(element_names, re.Pattern) or isinstance(element_names, str)
+    assert isinstance(element_names, re.Pattern)
 
-    names = element_names.lower() if isinstance(element_names, str) else element_names
+    # element_names = element_names.lower() if isinstance(element_names, str) else element_names
     elements = soup.find_all(
-        name=names,
+        name=element_names,
         string=REGEXP_NUMERIC,
         attrs=attributes
     )
@@ -667,7 +663,7 @@ def get_shares_outstanding(soup, attributes: dict):
         rf"{NAMESPACE_GAAP}:SharesOutstanding",
         rf"{NAMESPACE_GAAP}:CommonStockSharesOutstanding",
         rf"{NAMESPACE_GAAP}:CommonStockOtherSharesOutstanding",
-    ]).lower())
+    ]), re.IGNORECASE)
     return get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes)
 
 
@@ -676,24 +672,26 @@ def get_shares_outstanding(soup, attributes: dict):
 # ================================================================================
 def get_pl_revenues(soup, attributes: dict):
     names = re.compile("|".join([
-        rf"^{NAMESPACE_GAAP}:Revenues$",
-        rf"^{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
-        rf"^{NAMESPACE_GAAP}:RealEstateRevenueNet$",
-        rf"^{NAMESPACE_GAAP}:SalesOfRealEstate$",
-        rf"^{NAMESPACE_GAAP}:AdvertisingRevenue$",
-        rf"^{NAMESPACE_GAAP}:ElectricalGenerationRevenue$",
-        rf"^{NAMESPACE_GAAP}:ContractsRevenue$",
-        rf"^{NAMESPACE_GAAP}:RevenueMineralSales$",
-        rf"^{NAMESPACE_GAAP}:DeferredRevenueCurrent$",
-        rf"^{NAMESPACE_GAAP}:HealthCareOrganizationRevenue$",
-        rf"^{NAMESPACE_GAAP}:SalesRevenueGoodsGross$",
-        rf"^{NAMESPACE_GAAP}:AdmissionsRevenue$",
-        rf"^{NAMESPACE_GAAP}:InsuranceServicesRevenue$",
-        rf"^{NAMESPACE_GAAP}:BrokerageCommissionsRevenue$",
-        rf"^{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue$"
-        rf"^{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue$",
-        rf"^{NAMESPACE_GAAP}:DeferredRevenue$",
-    ]).lower())
+            rf"^{NAMESPACE_GAAP}:Revenues$",
+            rf"^{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
+            rf"^{NAMESPACE_GAAP}:RealEstateRevenueNet$",
+            rf"^{NAMESPACE_GAAP}:SalesOfRealEstate$",
+            rf"^{NAMESPACE_GAAP}:AdvertisingRevenue$",
+            rf"^{NAMESPACE_GAAP}:ElectricalGenerationRevenue$",
+            rf"^{NAMESPACE_GAAP}:ContractsRevenue$",
+            rf"^{NAMESPACE_GAAP}:RevenueMineralSales$",
+            rf"^{NAMESPACE_GAAP}:DeferredRevenueCurrent$",
+            rf"^{NAMESPACE_GAAP}:HealthCareOrganizationRevenue$",
+            rf"^{NAMESPACE_GAAP}:SalesRevenueGoodsGross$",
+            rf"^{NAMESPACE_GAAP}:AdmissionsRevenue$",
+            rf"^{NAMESPACE_GAAP}:InsuranceServicesRevenue$",
+            rf"^{NAMESPACE_GAAP}:BrokerageCommissionsRevenue$",
+            rf"^{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue$"
+            rf"^{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue$",
+            rf"^{NAMESPACE_GAAP}:DeferredRevenue$",
+        ]),
+        re.IGNORECASE
+    )
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
         fs=FS_PL,
@@ -709,7 +707,7 @@ def get_pl_cost_of_revenues(soup, attributes: dict):
         rf"^{NAMESPACE_GAAP}:ContractRevenueCost$",
         rf"^{NAMESPACE_GAAP}:CostOfServicesLicensesAndServices$"
         rf"^{NAMESPACE_GAAP}:LicenseCosts$"
-    ]).lower())
+    ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
         FS_PL,
@@ -718,7 +716,7 @@ def get_pl_cost_of_revenues(soup, attributes: dict):
 
 
 def get_pl_gross_profit(soup, attributes: dict):
-    names = f"{NAMESPACE_GAAP}:GrossProfit".lower()
+    names = re.compile(f"^{NAMESPACE_GAAP}:GrossProfit$", re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
         fs=FS_PL,
@@ -731,7 +729,9 @@ def get_pl_gross_profit(soup, attributes: dict):
 # --------------------------------------------------------------------------------
 def get_pl_operating_expense_r_and_d(soup, attributes: dict):
     """Get the R&D expense"""
-    names = f"{NAMESPACE_GAAP}:ResearchAndDevelopmentExpense".lower()
+    names = re.compile(
+        rf"^{NAMESPACE_GAAP}:ResearchAndDevelopmentExpense$", re.IGNORECASE
+    )
     return represents(
         get_records_for_financial_element_names(soup, names, attributes=attributes),
         fs=FS_PL,
@@ -741,7 +741,9 @@ def get_pl_operating_expense_r_and_d(soup, attributes: dict):
 
 def get_pl_operating_expense_selling_administrative(soup, attributes: dict):
     """Get the Administrative Expense (HanKanHi in JP)"""
-    names = f"{NAMESPACE_GAAP}:SellingGeneralAndAdministrativeExpense"
+    names = re.compile(
+        rf"^{NAMESPACE_GAAP}:SellingGeneralAndAdministrativeExpense$", re.IGNORECASE
+    )
     return represents(
         get_records_for_financial_element_names(soup, names, attributes=attributes),
         fs=FS_PL,
@@ -755,16 +757,18 @@ def get_pl_operating_expense_other(soup, attributes: dict):
     are associated with the entity's normal revenue producing operation
     """
     names = re.compile("|".join([
-        rf"{NAMESPACE_GAAP}:OtherCostAndExpenseOperating",
-        rf"{NAMESPACE_GAAP}:OthertCostOfOperatingRevenue"
-    ]).lower())
+        rf"^{NAMESPACE_GAAP}:OtherCostAndExpenseOperating$",
+        rf"^{NAMESPACE_GAAP}:OthertCostOfOperatingRevenue$"
+    ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes)
 
 
 def get_pl_operating_expense_total(soup, attributes: dict):
     """Get the Total Operating Expenses"""
-    names = f"{NAMESPACE_GAAP}:OperatingExpenses".lower()
+    names = re.compile(
+        rf"^{NAMESPACE_GAAP}:OperatingExpenses$", re.IGNORECASE
+    )
     return represents(
         get_records_for_financial_element_names(
             soup=soup, names=names, attributes=attributes),
@@ -774,7 +778,9 @@ def get_pl_operating_expense_total(soup, attributes: dict):
 
 def get_pl_operating_income(soup, attributes: dict):
     """Operating Income = GrossProfit - Total Operating Expenses"""
-    names = f"{NAMESPACE_GAAP}:OperatingIncomeLoss".lower()
+    names = re.compile(
+        f"^{NAMESPACE_GAAP}:OperatingIncomeLoss$", re.IGNORECASE
+    )
     return represents(
         get_records_for_financial_element_names(
             soup=soup, names=names, attributes=attributes),
@@ -807,7 +813,7 @@ def get_pl_non_operating_expense_interest(soup, attributes: dict):
     """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:InterestExpense$",
-    ]).lower())
+    ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
     )
@@ -816,7 +822,7 @@ def get_pl_non_operating_expense_interest(soup, attributes: dict):
 def get_pl_non_operating_expense_other(soup, attributes: dict):
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:OtherNonOperatingIncomeExpense$",
-    ]).lower())
+    ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
     )
@@ -824,7 +830,9 @@ def get_pl_non_operating_expense_other(soup, attributes: dict):
 
 def get_pl_income_tax(soup, attributes: dict):
     """Income Tax"""
-    names = f"{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit"
+    names = re.compile(
+        f"^{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit$", re.IGNORECASE
+    )
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
     )
@@ -837,7 +845,7 @@ def get_pl_net_income(soup, attributes: dict):
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:NetIncomeLoss$",
         rf"^{NAMESPACE_GAAP}:ProfitLoss$",
-    ]).lower())
+    ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(
             soup=soup, names=names, attributes=attributes
@@ -857,12 +865,12 @@ def get_pl_shares_outstanding(soup, attributes: dict):
 
 def get_pl_eps(soup, attributes: dict):
     """[US GAAP - Is Net Income Per Share the same with EPS?]
-    (https://money.stackexchange.com/questions/148015/us-gaap-is-net-income-per-share-the-same-with-eps)
+    (https://money.stackexchange.com/questions/148015)
     """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:EarningsPerShareBasic$",
         rf"^{NAMESPACE_GAAP}:EarningsPerShareBasicAndDiluted$",
-    ]).lower())
+    ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup,
         names=names,
@@ -873,325 +881,408 @@ def get_pl_eps(soup, attributes: dict):
 # ================================================================================
 # B/S
 # ================================================================================
-# ## Cash & Cash Equivalents
-# Look for the cash and cash equivalents for the reporting perid in the Balance Sheet and Cash Flow statements of the  10-K.
-def get_bs_current_asset_cash_and_equivalents(soup):
+# --------------------------------------------------------------------------------
+# Current Assets
+# --------------------------------------------------------------------------------
+def get_bs_current_asset_cash_and_equivalents(soup, attributes: dict):
+    """Cash & Cash EquivalentsCash & Cash Equivalents
+    Look for the cash and cash equivalents for the reporting period
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:CashAndCashEquivalentsAtCarryingValue$",
-    ]).lower())
-    return represents(get_records_for_financial_element_names(soup=soup, names=names), fs=FS_BS, rep=FS_ELEMENT_REP_CASH)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_CASH
+    )
 
-BS += get_bs_current_asset_cash_and_equivalents(soup)
 
-
-# ## Restricted Cash
-def get_bs_current_asset_restricted_cash_and_equivalents(soup):
+def get_bs_current_asset_restricted_cash_and_equivalents(soup, attributes: dict):
+    """Restricted Cash"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:RestrictedCashEquivalentsCurrent$",
         rf"^{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsAtCarryingValue$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_current_asset_restricted_cash_and_equivalents(soup)
 
-
-# ## Short Term Investments
-def get_bs_current_asset_short_term_investments(soup):
+def get_bs_current_asset_short_term_investments(soup, attributes: dict):
+    """Short Term Investments"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:ShortTermInvestments$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_current_asset_short_term_investments(soup)
 
-
-# ## Account Receivable
-def get_bs_current_asset_account_receivables(soup):
+def get_bs_current_asset_account_receivables(soup, attributes: dict):
+    """Account Receivable"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:ReceivablesNetCurrent$",
         rf"^{NAMESPACE_GAAP}:AccountsReceivableNetCurrent$",
         rf"^{NAMESPACE_GAAP}:OtherReceivables$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-PL += get_bs_current_asset_account_receivables(soup)
 
-
-# ## ***___Inventory___***
-def get_bs_current_asset_inventory(soup):
+def get_bs_current_asset_inventory(soup, attributes: dict):
+    """Inventory"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:InventoryNet$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-PL += get_bs_current_asset_inventory(soup)
 
-
+# --------------------------------------------------------------------------------
 # ## Prepaid Expense / Other Assets Current
 #
-# * [Understanding Prepaid Expenses](https://www.investopedia.com/terms/p/prepaidexpense.asp)
+# * [Understanding Prepaid Expenses]
+# (https://www.investopedia.com/terms/p/prepaidexpense.asp)
 #
-# > Companies make prepayments for goods or services such as leased office equipment or insurance coverage that provide continual benefits over time. Goods or services of this nature cannot be expensed immediately because the expense would not line up with the benefit incurred over time from using the asset.
+# > Companies make prepayments for goods or services such as leased office
+# > equipment or insurance coverage that provide continual benefits over time.
+# > Goods or services of this nature cannot be expensed immediately because the
+# > expense would not line up with the benefit incurred over time from using
+# > the asset.
 # >
-# > According to generally accepted accounting principles (GAAP), expenses should be recorded in the same accounting period as the benefit generated from the related asset.
+# > According to generally accepted accounting principles (GAAP), expenses
+# > should be recorded in the same accounting period as the benefit generated
+# > from the related asset.
 #
-# * [us-gaap: PrepaidExpenseAndOtherAssetsCurrent](https://www.calcbench.com/element/PrepaidExpenseAndOtherAssetsCurrent)
+# * [us-gaap: PrepaidExpenseAndOtherAssetsCurrent]
+# (https://www.calcbench.com/element/PrepaidExpenseAndOtherAssetsCurrent)
 #
-# > Amount of asset related to consideration paid in advance for costs that provide economic benefits in future periods, and amount of other assets that are expected to be realized or consumed within one year or the normal operating cycle, if longer.
+# > Amount of asset related to consideration paid in advance for costs that
+# > provide economic benefits in future periods, and amount of other assets
+# > that are expected to be realized or consumed within one year or the normal
+# > operating cycle, if longer.
 #
-# * [Other Current Assets (OCA)](https://www.investopedia.com/terms/o/othercurrentassets.asp)
+# * [Other Current Assets (OCA)]
+# > (https://www.investopedia.com/terms/o/othercurrentassets.asp)
 #
-# > Other current assets (OCA) is a category of things of value that a company owns, benefits from, or uses to generate income that can be converted into cash within one business cycle. They are referred to as “other” because they are uncommon or insignificant, unlike typical current asset items such as cash, securities, accounts receivable, inventory, and prepaid expenses.
-def get_bs_current_asset_other(soup):
+# > Other current assets (OCA) is a category of things of value that a company
+# > owns, benefits from, or uses to generate income that can be converted into
+# > cash within one business cycle. They are referred to as “other” because
+# > they are uncommon or insignificant, unlike typical current asset items such
+# > as cash, securities, accounts receivable, inventory, and prepaid expenses.
+# --------------------------------------------------------------------------------
+def get_bs_current_asset_other(soup, attributes: dict):
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:PrepaidExpenseCurrent$",
         rf"^{NAMESPACE_GAAP}:PrepaidExpenseAndOtherAssetsCurrent$",
         rf"^{NAMESPACE_GAAP}:OperatingLeaseRightOfUseAsset$",
         rf"^{NAMESPACE_GAAP}:OtherAssetsCurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_current_asset_other(soup)
 
-
-# ## ***___# Current Assets___***
-def get_bs_current_assets(soup):
+def get_bs_current_assets(soup, attributes: dict):
+    """Total Current Assets"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:AssetsCurrent$",
-    ]).lower())
-    return represents(get_records_for_financial_element_names(soup=soup, names=names), fs=FS_BS, rep=FS_ELEMENT_REP_CURRENT_ASSETS)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_CURRENT_ASSETS
+    )
 
-BS += get_bs_current_assets(soup)
 
-
-# ## Property, Plant, Equipment
-def get_bs_non_current_asset_property_and_equipment(soup):
+# --------------------------------------------------------------------------------
+# BS Non Current Assets
+# --------------------------------------------------------------------------------
+def get_bs_non_current_asset_property_and_equipment(soup, attributes: dict):
+    """Property, Plant, Equipment"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:PropertyPlantAndEquipmentNet$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_asset_property_and_equipment(soup)
 
-
-## Restricted Cash Non Current
-def get_bs_non_current_asset_restricted_cash_and_equivalent(soup):
+def get_bs_non_current_asset_restricted_cash_and_equivalent(soup, attributes: dict):
+    """Restricted Cash Non Current"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsNoncurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_asset_restricted_cash_and_equivalent(soup)
 
-
-# ## Deferred Tax
-def get_bs_non_current_asset_deferred_income_tax(soup):
+def get_bs_non_current_asset_deferred_income_tax(soup, attributes: dict):
+    """Deferred Tax"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:DeferredIncomeTaxAssetsNet$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_asset_deferred_income_tax(soup)
 
-
-# ## ***___GoodWill___***
-def get_bs_non_current_asset_goodwill(soup):
+def get_bs_non_current_asset_goodwill(soup, attributes: dict):
+    """GoodWill"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:GoodWill$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_asset_goodwill(soup)
 
-
-# ## Intangible and Other Assets
-def get_bs_non_current_asset_other(soup):
+def get_bs_non_current_asset_other(soup, attributes: dict):
+    """Intangible and Other Assets"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:IntangibleAssetsNetExcludingGoodwill$",
         rf"^{NAMESPACE_GAAP}:OtherAssetsNoncurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_asset_other(soup)
 
-
-# ## ***___# Total Assets___***
-def get_bs_total_assets(soup):
+def get_bs_total_assets(soup, attributes: dict):
+    """Total Assets"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:Assets$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_TOTAL_ASSETS
+    )
 
-BS += represents(get_bs_total_assets(soup), fs=FS_BS, rep=FS_ELEMENT_REP_TOTAL_ASSETS)
 
-
-# ## Account Payable
-#
-# * [Accounts Payable (AP)](https://www.investopedia.com/terms/a/accountspayable.asp)
-#
-# > company's obligation to pay off a short-term debt to its creditors or suppliers.
-#
-#
-#
-# * [Accrued Liability](https://www.investopedia.com/terms/a/accrued-liability.asp) (売掛金)
-#
-# > costs for goods and services already delivered to a company for which it must pay in the future. A company can accrue liabilities for any number of obligations and are recorded on the company's balance sheet. They are normally listed on the balance sheet as current liabilities and are adjusted at the end of an accounting period.
-#
-#
-# * [us-gaap:AccruedLiabilitiesCurrent](http://xbrlsite.azurewebsites.net/2019/Prototype/references/us-gaap/Element-354.html)
-def get_bs_current_liability_account_payable(soup):
+# --------------------------------------------------------------------------------
+# BS Current Liabilities
+# --------------------------------------------------------------------------------
+def get_bs_current_liability_account_payable(soup, attributes: dict):
+    """Account Payable
+    * [Accounts Payable (AP)](https://www.investopedia.com/terms/a/accountspayable.asp)
+    > company's obligation to pay off a short-term debt to its creditors or suppliers.
+    > costs for goods and services already delivered to a company for which
+    > it must pay in the future. A company can accrue liabilities for any number
+    > of obligations and are recorded on the company's balance sheet.
+    > They are normally listed on the balance sheet as current liabilities
+    > and are adjusted at the end of an accounting period
+    
+    * [Accrued Liability](https://www.investopedia.com/terms/a/accrued-liability.asp)
+    * [us-gaap:AccruedLiabilitiesCurrent]
+    (http://xbrlsite.azurewebsites.net/2019/Prototype/references/us-gaap/Element-354.html)
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:AccountsPayableCurrent$",
         rf"^{NAMESPACE_GAAP}:AccruedLiabilitiesCurrent$",
         rf"^{NAMESPACE_GAAP}:CapitalExpendituresIncurredButNotYetPaid$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_current_liability_account_payable(soup)
 
-
-# ## Tax
-def bs_get_current_liability_tax(soup):
+def get_bs_current_liability_tax(soup, attributes: dict):
+    """Tax"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:TaxesPayableCurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += bs_get_current_liability_tax(soup)
 
-
-# ## Debt Due
-def bs_get_current_liability_longterm_debt(soup):
+def get_bs_current_liability_longterm_debt(soup, attributes: dict):
+    """Debt due to pay"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:LongTermDebtCurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += bs_get_current_liability_longterm_debt(soup)
 
-
-# ## ***___# Current Liabilities___***
-def get_bs_current_liabilities(soup):
+def get_bs_current_liabilities(soup, attributes: dict):
+    """Total Current Liabilities"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:LiabilitiesCurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_CURRENT_LIABILITIES
+    )
 
-BS += represents(get_bs_current_liabilities(soup), fs=FS_BS, rep=FS_ELEMENT_REP_CURRENT_LIABILITIES)
 
-
-# ## Long Term Debt
-def get_bs_non_current_liability_longterm_debt(soup):
+# --------------------------------------------------------------------------------
+# BS Non Current Liabilities
+# --------------------------------------------------------------------------------
+def get_bs_non_current_liability_longterm_debt(soup, attributes: dict):
+    """Long Term Debt"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:LongTermDebt$",
         rf"^{NAMESPACE_GAAP}:LongTermDebtNoncurrent$",
         rf"^{NAMESPACE_GAAP}:LongTermLoansFromBank$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_liability_longterm_debt(soup)
 
-
-# ## Tax Deferred
-def get_bs_non_current_liability_deferred_tax(soup):
+def get_bs_non_current_liability_deferred_tax(soup, attributes: dict):
+    """Tax Deferred"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:DeferredIncomeTaxLiabilitiesNet$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_liability_deferred_tax(soup)
 
+def get_bs_non_current_liability_other(soup, attributes: dict):
+    """
+    Other Long Term Liabilities
+    Postemployment Benefits Liability, Noncurrent
+    * [us-gaap:PostemploymentBenefitsLiabilityNoncurrent]
+    (http://xbrlsite.azurewebsites.net/2019/Prototype/references/us-gaap/Element-12380.html)
 
-# ## Other Long Term Liabilities
-#
-# * [Postemployment Benefits Liability, Noncurrent/us-gaap:PostemploymentBenefitsLiabilityNoncurrent](http://xbrlsite.azurewebsites.net/2019/Prototype/references/us-gaap/Element-12380.html)
-#
-# > The obligations recognized for the various benefits provided to former or inactive employees, their beneficiaries, and covered dependents after employment but before retirement that is payable after one year (or beyond the operating cycle if longer).
-def get_bs_non_current_liability_other(soup):
+    > The obligations recognized for the various benefits provided to former
+    > or inactive employees, their beneficiaries, and covered dependents after
+    > employment but before retirement that is payable after one year 
+    (or beyond the operating cycle if longer).
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:PostemploymentBenefitsLiabilityNoncurrent$",
         rf"^{NAMESPACE_GAAP}:PensionAndOtherPostretirementAndPostemploymentBenefitPlansLiabilitiesNoncurrent$",
         rf"^{NAMESPACE_GAAP}:OperatingLeaseLiabilityNoncurrent$",
         rf"^{NAMESPACE_GAAP}:OtherLiabilitiesNoncurrent$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_non_current_liability_other(soup)
 
-
-# ## ***___# Total Liabilities___***
-def get_bs_total_liabilities(soup):
+def get_bs_total_liabilities(soup, attributes: dict):
+    """Total Liabilities"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:Liabilities$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_LIABILITIES
+    )
 
-BS += represents(get_bs_total_liabilities(soup), fs=FS_BS, rep=FS_ELEMENT_REP_LIABILITIES)
 
+# --------------------------------------------------------------------------------
+# BS Stockholders Equity
+# --------------------------------------------------------------------------------
+def get_bs_stockholders_equity_paid_in(soup, attributes: dict):
+    """Paid-in Capital
+    * [Paid-In Capital]
+    (https://www.investopedia.com/terms/p/paidincapital.aspPaid-In Capital)
+    > Paid-in capital represents the funds raised by the business through
+    selling its equity and not from ongoing business operations.
+    Paid-in capital also refers to a line item on the company's balance sheet
+    listed under shareholders' equity (or stockholders' equity),
+    often shown alongside the line item for additional paid-in capital.
 
-# ## Paid-in Capital
-#
-# * [Paid-In Capital](https://www.investopedia.com/terms/p/paidincapital.aspPaid-In Capital)
-#
-# > Paid-in capital represents the funds raised by the business through selling its equity and not from ongoing business operations. Paid-in capital also refers to a line item on the company's balance sheet listed under shareholders' equity (also referred to as stockholders' equity), often shown alongside the line item for additional paid-in capital.
-#
-# * [Additional Paid-In Capital (APIC)](https://www.investopedia.com/terms/a/additionalpaidincapital.asp)
-#
-# > Often referred to as "contributed capital in excess of par,” APIC occurs when an investor buys newly-issued shares directly from a company during its initial public offering (IPO) stage. APIC, which is itemized under the shareholder equity (SE) section of a balance sheet, is viewed as a profit opportunity for companies as it results in them receiving excess cash from stockholders.
-def get_bs_stockholders_equity_paid_in(soup):
+    * [Additional Paid-In Capital (APIC)]
+    (https://www.investopedia.com/terms/a/additionalpaidincapital.asp)
+
+    > Often referred to as "contributed capital in excess of par,” APIC
+    occurs when an investor buys newly-issued shares directly from a
+    company during its initial public offering (IPO) stage. APIC, which is
+    itemized under the shareholder equity (SE) section of a balance sheet,
+    is viewed as a profit opportunity for companies as it results in them
+    receiving excess cash from stockholders.
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:CommonStockValue$",
         rf"^{NAMESPACE_GAAP}:AdditionalPaidInCapitalCommonStock$",
         rf"^{NAMESPACE_GAAP}:CommonStocksIncludingAdditionalPaidInCapital$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_stockholders_equity_paid_in(soup)
 
+def get_bs_stockholders_equity_retained(soup, attributes: dict):
+    """Retained Earnings
+    * [Retained Earnings]
+    (https://www.investopedia.com/terms/r/retainedearnings.asp)
+    The word "retained" captures the fact that because those earnings
+    were **NOT paid out to shareholders as dividends** they were instead
+    retained by the company.
 
-# ## Retained Earnings
-#
-# * [Retained Earnings](https://www.investopedia.com/terms/r/retainedearnings.asp)
-#
-# >  The word "retained" captures the fact that because those earnings were **NOT paid out to shareholders as dividends** they were instead retained by the company.
-def get_bs_stockholders_equity_retained(soup):
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:RetainedEarningsAppropriated$",
         rf"^{NAMESPACE_GAAP}:RetainedEarningsAccumulatedDeficit$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
 
-BS += get_bs_stockholders_equity_retained(soup)
 
-
-# ## Accumulated other comprehensive income/loss
-def get_bs_stockholders_equity_other(soup):
+def get_bs_stockholders_equity_other(soup, attributes: dict):
+    """Accumulated other comprehensive income/loss"""
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:AccumulatedOtherComprehensiveIncomeLossNetOfTax$",
         rf"^{NAMESPACE_GAAP}:MinorityInterest$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes)
 
-BS += get_bs_stockholders_equity_other(soup)
 
-
-# ## ***___# Stockholder's Equity___***
-#
-# * [Stockholders' Equity](https://www.investopedia.com/terms/s/stockholdersequity.asp)
-#
-# > Remaining amount of assets available to shareholders after all liabilities have been paid. (純資産)
-def get_bs_stockholders_equity(soup):
+def get_bs_stockholders_equity(soup, attributes: dict):
+    """Stockholder's Equity
+    * [Stockholders' Equity]
+    (https://www.investopedia.com/terms/s/stockholdersequity.asp)
+    Remaining amount of assets available to shareholders after all
+    liabilities have been paid. (純資産)
+    """
     names = re.compile("|".join([
         rf"^{NAMESPACE_GAAP}:StockholdersEquity$",
         rf"^{NAMESPACE_GAAP}:StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest$",
-    ]).lower())
-    return get_records_for_financial_element_names(soup=soup, names=names)
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_EQUITY
+    )
 
-BS += represents(get_bs_stockholders_equity(soup), fs=FS_BS, rep=FS_ELEMENT_REP_TOTAL_EQUITY)
 
-
-# ## ***___# Total Liabilities + Stockholder's Equity___***
-names = re.compile("|".join([
-    rf"^{NAMESPACE_GAAP}:LiabilitiesAndStockholdersEquity$",
-]).lower())
-BS += get_records_for_financial_element_names(soup=soup, names=names)
+def get_bs_total_liabilities_and_stockholders_equity(soup, attributes: dict):
+    """Total Liabilities + Stockholder's Equity"""
+    names = re.compile("|".join([
+        rf"^{NAMESPACE_GAAP}:LiabilitiesAndStockholdersEquity$",
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_BS,
+        rep=FS_ELEMENT_REP_EQUITY_AND_LIABILITIES
+    )

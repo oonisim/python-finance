@@ -207,7 +207,7 @@ class EdgarXBRL(EdgarBase):
         # --------------------------------------------------------------------------------
         assert log_level in [10, 20, 30, 40]
         logging.basicConfig(level=log_level)
-        logging.info("worker(): task size is %s" % len(df))
+        logging.debug("worker(): task size is %s" % len(df))
 
         # --------------------------------------------------------------------------------
         # Insert Year, Quarter columns before "Filename", and "Filepath" at the end
