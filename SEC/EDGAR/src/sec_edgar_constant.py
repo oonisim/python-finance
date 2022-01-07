@@ -72,7 +72,7 @@ FS_ELEMENT_REP_EQUITY_AND_LIABILITIES = "total_equity_and_liabilities"
 # --------------------------------------------------------------------------------
 DEFAULT_LOG_LEVEL = 20  # INFO
 NUM_CPUS = multiprocessing.cpu_count()
-MAX_NUM_WORKERS = NUM_CPUS * 3
+MAX_NUM_WORKERS = NUM_CPUS * 4
 
 # --------------------------------------------------------------------------------
 # Directories

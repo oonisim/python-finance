@@ -296,7 +296,7 @@ class EdgarGAAP(EdgarBase):
         year = row[DF_COLUMN_YEAR]
         qtr = row[DF_COLUMN_QTR]
         logging.info(
-            "generate_financial_statement(): processing CIK[%s],company[%s],form[%s],year[%s],qtr[%s]" %
+            "generate_financial_statement(): processing CIK[%7s], company[%40s], form[%s], year[%s], qtr[%s]" %
             (cik, get_company_name(xbrl), form_type, year, qtr)
         )
 

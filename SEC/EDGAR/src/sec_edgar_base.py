@@ -304,7 +304,7 @@ class EdgarBase:
         ]), "Invalid form type(s) in [%s]" % args['form_types']
 
         # Number of workers
-        assert 0 < args['num_workers'] < MAX_NUM_WORKERS, \
+        assert 0 < args['num_workers'] <= MAX_NUM_WORKERS, \
             f"Invalid number of workers {args['num_workers']}"
 
         # Test mode
