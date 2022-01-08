@@ -371,8 +371,12 @@ class EdgarGAAP(EdgarBase):
 
         logging.debug("get_financial_statements(): First row of the B/S:\n[%s]" % bs[0])
 
+        # --------------------------------------------------------------------------------
+        # Prepend |CIK|Accession|Form Type| columns
+        # --------------------------------------------------------------------------------
         del xbrl
         fs = EdgarGAAP.prepend_columns(pl + bs, [cik, accession, form_type])
+
         return fs
 
     @staticmethod
