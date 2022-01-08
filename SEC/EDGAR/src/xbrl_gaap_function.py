@@ -243,16 +243,28 @@ def get_date_from_xbrl_filename(filename):
     This endDate value is highly likely to match the date from the filename.
     """
     filename = filename_basename(filename)
-    pattern = re.compile(r"([^0-9]*)[-]*([12][0-9]{3})[-]*([0-9]{2})[-]*([0-9]{2})(.*)")
-    match = re.match(pattern, filename)
-    if match:
-        year = match.group(2)
-        month = match.group(3)
-        day = match.group(4)
-        date_from_xbrl_filename = "-".join([year, month, day])
-        return date_from_xbrl_filename
+    if False:
+        pattern = re.compile(r"([^0-9]*)[-]*([12][0-9]{3})[-]*([0-9]{2})[-]*([0-9]{2})(.*)")
+        match = re.match(pattern, filename)
+        if match:
+            year = match.group(2)
+            month = match.group(3)
+            day = match.group(4)
+            date_from_xbrl_filename = "-".join([year, month, day])
+            return date_from_xbrl_filename
+        else:
+            return None
     else:
-        return None
+        pattern = re.compile(r"(.*)([12][0-9]{7})(.*)")
+        match = re.match(pattern, filename)
+        if match:
+            yyyymmdd = match.group(2)
+            year = yyyymmdd[:4]
+            month = yyyymmdd[4:6]
+            day = yyyymmdd[6:8]
+            return "-".join([year, month, day])
+        else:
+            return None
 
 
 def get_report_period_end_date(soup, date_from_xbrl_filename):
