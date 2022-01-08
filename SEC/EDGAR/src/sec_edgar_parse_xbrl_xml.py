@@ -514,13 +514,17 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         filings = []  # List of SEC EDGAR filings
         for index, row in df.iterrows():
-            self.validate_year_qtr(row=row, year=year, qtr=qtr)
-            statements = self.get_financial_statements(msg, row)
-            if not statements:
-                logging.error("worker(): no FS element found for row:\n[%s]" % row)
-                statements = self.get_nil_financial_statement(msg, row)
+            try:
+                self.validate_year_qtr(row=row, year=year, qtr=qtr)
+                statements = self.get_financial_statements(msg, row)
+                if not statements:
+                    logging.error("worker(): no FS element found for row:\n[%s]" % row)
+                    statements = self.get_nil_financial_statement(msg, row)
 
-            filings.extend(statements)
+                filings.extend(statements)
+            except RuntimeError as e:
+                logging.error("worker(): error [%s]." % e)
+                logging.error("worker(): skipping row:\n[%s]" % row)
 
         assert isinstance(filings, list) and len(filings) > 0, "Must have rows."
 
