@@ -23,7 +23,16 @@ GAAP_CREDIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax",
     f"{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue",
     f"{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue",
+    f"{NAMESPACE_GAAP}:OperatingLeasesIncomeStatementLeaseRevenue",
+    f"{NAMESPACE_GAAP}:OtherNonoperatingIncome",
     f"{NAMESPACE_GAAP}:InvestmentIncomeInterest",
+    f"{NAMESPACE_GAAP}:InterestPaid",
+    f"{NAMESPACE_GAAP}:InterestAndOtherIncome",
+    f"{NAMESPACE_GAAP}:InterestIncomeOther",
+    f"{NAMESPACE_GAAP}:InsuranceCommissionsAndFees",
+    f"{NAMESPACE_GAAP}:DerivativeGainOnDerivative",
+    f"{NAMESPACE_GAAP}:InterestAndDividendIncomeOperating",
+    f"{NAMESPACE_GAAP}:InvestmentIncomeInterestAndDividend",
     f"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles",
 
     # B/S (Assets)
@@ -44,8 +53,9 @@ GAAP_CREDIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:OtherAssetsCurrent",
     f"{NAMESPACE_GAAP}:OtherAssetsNoncurrent",
     f"{NAMESPACE_GAAP}:OperatingLeaseRightOfUseAsset",
-
-
+    f"{NAMESPACE_GAAP}:Depreciation",
+    f"{NAMESPACE_GAAP}:DepreciationAndAmortization",
+    f"{NAMESPACE_GAAP}:DepreciationDepletionAndAmortization",
 ]))
 
 GAAP_DEBIT_ITEMS = set(map(str.lower, [
@@ -62,8 +72,11 @@ GAAP_DEBIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit",
     f"{NAMESPACE_GAAP}:InterestExpense",
     f"{NAMESPACE_GAAP}:MarketingExpense",
+    f"{NAMESPACE_GAAP}:EquipmentExpense",
+    f"{NAMESPACE_GAAP}:OtherExpenses",
     f"{NAMESPACE_GAAP}:LaborAndRelatedExpense",
     f"{NAMESPACE_GAAP}:ProvisionForLoanLeaseAndOtherLosses",
+    f"{NAMESPACE_GAAP}:DistributedEarnings",
 
     # B/S (Liabilities)
     f"{NAMESPACE_GAAP}:AccountsPayableCurrent",

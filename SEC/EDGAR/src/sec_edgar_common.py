@@ -1,6 +1,11 @@
 import glob
 import logging
 import os
+from typing import (
+    List,
+    Callable,
+    Any
+)
 
 import dateutil
 import pandas as pd
@@ -15,13 +20,63 @@ def filename_extension(filename):
     return os.path.splitext(filename)[1]
 
 
-def has_date_format(date):
-    """Check if the date has date/time format"""
+def is_date_string(x):
+    """Check if x has date/time format"""
     try:
-        dateutil.parser.parse(date)
+        dateutil.parser.parse(x)
         return True
     except ValueError as e:
         return False
+
+
+def is_int_string(x: str):
+    """Check if a string is integer or float
+    123.0 and 123 are both integer
+    """
+    assert isinstance(x, str)
+    if '.' in x:
+        i_f = x.split('.')
+        i = i_f[0]         # integer part
+        f = i_f[1]         # fraction part
+        return (
+            # Integer part
+                (
+                        i.lstrip('-').isdigit() or         # 123, -123
+                        len(i.lstrip('-')) == 0            # i part of ".0" or "-.0"
+                )
+                and
+                # Fraction part
+                (
+                        (f.isdigit() and int(f) == 0) or   # 123.0, 123.00
+                        len(f) == 0                        # 123.
+                )
+        )
+    else:
+        return x.lstrip('-').isdigit()
+
+
+def sort_list_of_records_at_nth_element(
+        x: List[List[Any]], position: int, f: Callable = lambda x: x, reverse=False
+) -> List[List[Any]]:
+    """Sort a list of records (record is another list) with i-th element of the record
+    Args:
+        x: List of records
+        position: i-th position in the record to sort with
+        f: function to convert the n-th element
+    """
+    assert isinstance(x, list) and len(x) > 0 and isinstance(x[0], list), "Invalid x"
+    assert 0 <= position < len(x[0]), \
+        "invalid position [%s] for list length [%s]" % (position, len(x[0]))
+
+    # --------------------------------------------------------------------------------
+    # 'f' corresponds with 'int' function below.
+    # https://stackoverflow.com/a/17555237
+    # in this method, the integers are lexicographically compared.
+    # Thus, '5' will be larger than '20'. If an integer comparison is to be made,
+    # key=lambda x: int(x[3]) should be used.
+    # --------------------------------------------------------------------------------
+    x.sort(key=lambda record: f(record[position]), reverse=reverse)
+    return x
 
 
 def split(tasks: pd.DataFrame, num: int):

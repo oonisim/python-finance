@@ -43,8 +43,11 @@ from xbrl_gaap_function import (
     get_date_from_xbrl_filename,
     get_attributes_to_select_target_fs_elements,
     get_financial_element_columns,
-    # sed -n 's/^def \(get_pl_.*\)(.*/\1,/p'
+    # sed -n 's/^def \(get_pl_.*\)(.*/\1,/p' | sort | uniq
     get_pl_revenues,
+    get_pl_revenue_other,
+    get_pl_income_interest,
+    get_pl_income_other,
     get_pl_cost_of_revenues,
     get_pl_gross_profit,
     get_pl_operating_expense_r_and_d,
@@ -54,16 +57,18 @@ from xbrl_gaap_function import (
     get_pl_operating_income,
     get_pl_non_operating_expense_interest,
     get_pl_non_operating_expense_other,
+    get_pl_dividends,
     get_pl_income_tax,
     get_pl_net_income,
     get_pl_shares_outstanding,
     get_pl_eps,
-    # sed -n 's/^def \(get_bs_.*\)(.*/\1,/p'
+    # sed -n 's/^def \(get_bs_.*\)(.*/\1,/p' | sort | uniq
     get_bs_current_asset_cash_and_equivalents,
     get_bs_current_asset_restricted_cash_and_equivalents,
     get_bs_current_asset_short_term_investments,
     get_bs_current_asset_account_receivables,
     get_bs_current_asset_inventory,
+    get_bs_current_depreciation,
     get_bs_current_asset_other,
     get_bs_current_assets,
     get_bs_non_current_asset_property_and_equipment,
@@ -89,6 +94,9 @@ from xbrl_gaap_function import (
 
 PL_FUNCTIONS: List[Callable] = [
     get_pl_revenues,
+    get_pl_revenue_other,
+    get_pl_income_interest,
+    get_pl_income_other,
     get_pl_cost_of_revenues,
     get_pl_gross_profit,
     get_pl_operating_expense_r_and_d,
@@ -98,6 +106,7 @@ PL_FUNCTIONS: List[Callable] = [
     get_pl_operating_income,
     get_pl_non_operating_expense_interest,
     get_pl_non_operating_expense_other,
+    get_pl_dividends,
     get_pl_income_tax,
     get_pl_net_income,
     get_pl_shares_outstanding,
@@ -110,6 +119,7 @@ BS_FUNCTIONS: List[Callable] = [
     get_bs_current_asset_short_term_investments,
     get_bs_current_asset_account_receivables,
     get_bs_current_asset_inventory,
+    get_bs_current_depreciation,
     get_bs_current_asset_other,
     get_bs_current_assets,
     get_bs_non_current_asset_property_and_equipment,

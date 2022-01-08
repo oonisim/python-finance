@@ -11,8 +11,10 @@ import numpy as np
 from bs4 import BeautifulSoup
 
 from sec_edgar_common import (
-    has_date_format,
+    is_date_string,
+    is_int_string,
     filename_basename,
+    sort_list_of_records_at_nth_element,
 )
 from sec_edgar_constant import (
     # SEC Form Types
@@ -316,7 +318,7 @@ def get_report_period_end_date(soup, date_from_xbrl_filename):
             end_date = period.find(REGEXP_XBRL_TAG_END_DATE)
             if end_date:
                 match = re.match(REGEXP_XBRL_END_DATE_PATTERN, end_date.string.strip())
-                if match and has_date_format(match.group(2)):
+                if match and is_date_string(match.group(2)):
                     candidates.append(match.group(2))
 
     if len(candidates) <= 0:
@@ -668,7 +670,7 @@ def get_records_for_financial_elements(elements):
         element_scale = int(element['decimals']) if element['decimals'].lower() != 'inf' else np.inf
 
         # Value of the element
-        element_value = float(element.text)
+        element_value = int(element.text) if is_int_string(element.text) else float(element.text)
 
         # Context ID of the element
         element_context = element['contextref']
@@ -686,7 +688,11 @@ def get_records_for_financial_elements(elements):
         assert len(record) == len(get_financial_element_columns())
         results.append(record)
 
-    return results
+    # --------------------------------------------------------------------------------
+    # Sort records in descending order with element_value so that the larger
+    # value comes first.
+    # --------------------------------------------------------------------------------
+    return sort_list_of_records_at_nth_element(x=results, position=4, f=float, reverse=True)
 
 
 def represents(records: list, fs: str, rep: str):
@@ -757,7 +763,6 @@ def get_shares_outstanding(soup, attributes: dict):
 def get_pl_revenues(soup, attributes: dict):
     names = re.compile("|".join([
             rf"{NAMESPACE_GAAP}:Revenues$",
-            rf"{NAMESPACE_GAAP}:RevenueFromContractWithCustomerExcludingAssessedTax$",
             rf"{NAMESPACE_GAAP}:SalesRevenueNet$",
             rf"{NAMESPACE_GAAP}:SalesRevenueGoodsNet$",
             rf"{NAMESPACE_GAAP}:RealEstateRevenueNet$",
@@ -777,8 +782,6 @@ def get_pl_revenues(soup, attributes: dict):
             rf"{NAMESPACE_GAAP}:RegulatedAndUnregulatedOperatingRevenue$"
             rf"{NAMESPACE_GAAP}:OtherAlternativeEnergySalesRevenue$",
             rf"{NAMESPACE_GAAP}:DeferredRevenue$",
-            rf"{NAMESPACE_GAAP}:InvestmentIncomeInterest$",
-            rf"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles$",
         ]),
         re.IGNORECASE
     )
@@ -787,6 +790,41 @@ def get_pl_revenues(soup, attributes: dict):
         fs=FS_PL,
         rep=FS_ELEMENT_REP_REVENUE
     )
+
+
+def get_pl_revenue_other(soup, attributes: dict):
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:OperatingLeasesIncomeStatementLeaseRevenue$",
+    ]),
+        re.IGNORECASE
+    )
+    return get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes)
+
+
+def get_pl_income_interest(soup, attributes: dict):
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:InvestmentIncomeInterest$",
+        rf"{NAMESPACE_GAAP}:InterestAndOtherIncome$",
+        rf"{NAMESPACE_GAAP}:InterestPaid$",
+        rf"{NAMESPACE_GAAP}:InterestIncomeOther$",
+        rf"{NAMESPACE_GAAP}:DerivativeGainOnDerivative$",
+        rf"{NAMESPACE_GAAP}:InterestAndDividendIncomeOperating$",
+        rf"{NAMESPACE_GAAP}:InvestmentIncomeInterestAndDividend$",
+        rf"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles$",
+    ]),
+        re.IGNORECASE
+    )
+    return get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes)
+
+
+def get_pl_income_other(soup, attributes: dict):
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:InsuranceCommissionsAndFees$",
+        rf"{NAMESPACE_GAAP}:OtherNonoperatingIncome$",
+    ]),
+        re.IGNORECASE
+    )
+    return get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes)
 
 
 def get_pl_cost_of_revenues(soup, attributes: dict):
@@ -850,6 +888,8 @@ def get_pl_operating_expense_other(soup, attributes: dict):
         rf"{NAMESPACE_GAAP}:OtherCostAndExpenseOperating$",
         rf"{NAMESPACE_GAAP}:OthertCostOfOperatingRevenue$",
         rf"{NAMESPACE_GAAP}:MarketingExpense$",
+        rf"{NAMESPACE_GAAP}:EquipmentExpense$",
+        rf"{NAMESPACE_GAAP}:OtherExpenses$",
         rf"{NAMESPACE_GAAP}:LaborAndRelatedExpense$",
         rf"{NAMESPACE_GAAP}:ProvisionForLoanLeaseAndOtherLosses$",
     ]), re.IGNORECASE)
@@ -921,6 +961,16 @@ def get_pl_non_operating_expense_other(soup, attributes: dict):
     )
 
 
+def get_pl_dividends(soup, attributes: dict):
+    """Dividends"""
+    names = re.compile(
+        rf"{NAMESPACE_GAAP}:DistributedEarnings$", re.IGNORECASE
+    )
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
+
+
 def get_pl_income_tax(soup, attributes: dict):
     """Income Tax"""
     names = re.compile(
@@ -931,6 +981,9 @@ def get_pl_income_tax(soup, attributes: dict):
     )
 
 
+# --------------------------------------------------------------------------------
+# P/L Net Income
+# --------------------------------------------------------------------------------
 def get_pl_net_income(soup, attributes: dict):
     """
     Net Income = GrossProfit - (Operating Expenses + NonOperating Expense) - Tax
@@ -1030,6 +1083,18 @@ def get_bs_current_asset_inventory(soup, attributes: dict):
     """Inventory"""
     names = re.compile("|".join([
         rf"{NAMESPACE_GAAP}:InventoryNet$",
+    ]), re.IGNORECASE)
+    return get_records_for_financial_element_names(
+        soup=soup, names=names, attributes=attributes
+    )
+
+
+def get_bs_current_depreciation(soup, attributes: dict):
+    """Inventory"""
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:Depreciation$",
+        rf"{NAMESPACE_GAAP}:DepreciationAndAmortization$",
+        rf"{NAMESPACE_GAAP}:DepreciationDepletionAndAmortization$",
     ]), re.IGNORECASE)
     return get_records_for_financial_element_names(
         soup=soup, names=names, attributes=attributes
