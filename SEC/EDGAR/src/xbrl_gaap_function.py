@@ -669,8 +669,19 @@ def get_records_for_financial_elements(elements):
         # Scale of the element
         element_scale = int(element['decimals']) if element['decimals'].lower() != 'inf' else np.inf
 
-        # Value of the element
-        element_value = int(element.text) if is_int_string(element.text) else float(element.text)
+        # --------------------------------------------------------------------------------
+        # Value of the element. Convert int value without fractional integer.
+        # To avoid "ValueError: invalid literal for int() with base 10: '0.00'",
+        # use int(float(str)) because int() cannot take fractional string.
+        # https://stackoverflow.com/a/8948303/4281353
+        # >>> int("0.00")
+        # Traceback (most recent call last):
+        #   File "<stdin>", line 1, in <module>
+        # ValueError: invalid literal for int() with base 10: '0.00'
+        # >>> int(float("0.00"))
+        # 0
+        # --------------------------------------------------------------------------------
+        element_value = int(float(element.text)) if is_int_string(element.text) else float(element.text)
 
         # Context ID of the element
         element_context = element['contextref']
