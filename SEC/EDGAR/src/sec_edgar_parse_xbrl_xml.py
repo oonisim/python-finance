@@ -303,7 +303,7 @@ class EdgarGAAP(EdgarBase):
         input_xml_directory = msg['input_xml_directory']
         accession = EdgarGAAP.get_accession_from_xbrl_filepath(filepath)
         logging.info(
-            "get_financial_statements(): processing CIK[%s], accession[%18s] "
+            "get_financial_statements(): processing CIK[%7s], accession[%18s] "
             "form[%s] year[%s] qtr[%s] file[%s]" %
             (cik, accession, form_type, year, qtr, os.path.basename(filepath))
         )
