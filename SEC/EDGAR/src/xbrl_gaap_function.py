@@ -101,16 +101,21 @@ def get_element_hash(element):
 # XBRL/US-GAAP taxonomy handlers
 # ================================================================================
 def get_company_name(soup):
-    """Get company (registrant) name from the XBRL"""
+    """Get company (registrant) name from the XBRL
+    Returns: Company name or None
+    """
+    company_name = None
     registrant_name = soup.find(
         name=re.compile("dei:EntityRegistrantName", re.IGNORECASE)
-    ).string.strip()
-    assert registrant_name, f"No registrant name found"
+    )
+    if registrant_name:
+        # Remove non-ascii characters to form a company name
+        company_name = ''.join(e for e in registrant_name.string.strip() if e.isalnum())
+        logging.debug("get_company_name(): company name is [%s]" % company_name)
+    else:
+        logging.error("get_company_name(): registrant_name not found.")
 
-    # Remove non-ascii characters to form a company name
-    registrant_name = ''.join(e for e in registrant_name if e.isalnum())
-    logging.debug("get_company_name(): company name is [%s]" % registrant_name)
-    return registrant_name
+    return company_name
 
 
 # --------------------------------------------------------------------------------

@@ -4,7 +4,8 @@ import os
 import re
 from typing import (
     List,
-    Callable
+    Callable,
+    Optional
 )
 
 import bs4
@@ -276,29 +277,60 @@ class EdgarGAAP(EdgarBase):
         logging.debug("prepend_columns(): First row of FS:\n[%s]" % fs[0])
         return fs
 
-    def generate_financial_statement(self, msg: dict, row) -> List[List[str]]:
-        """Generate a list of financial statement elements
+    def get_financial_statements(self, msg: dict, row) -> Optional[List[List[str]]]:
+        """Generate a list of financial statement elements from a filing
         Args:
             msg: message
-            row: |CIK|Form Type|Date Filed|Year|Quarter|Filename|Filepath|
+            row: |CIK|Form Type|Year|Quarter|Filepath|
         Returns:
             List of FS records with the format:
             |CIK|Accession|Form Type|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
+        filepath = row[DF_COLUMN_FILEPATH]
+        cik = row[DF_COLUMN_CIK]
+        year = row[DF_COLUMN_YEAR]
+        qtr = row[DF_COLUMN_QTR]
+        if not (isinstance(filepath, str) and len(filepath) > 0):
+            logging.error(
+                "get_financial_statements(): skipping CIK[%s] Year[%s] Qtr[%s] "
+                "as no Filepath in row:\n[%s]" % (cik, year, qtr, row)
+            )
+            return None
+
+        form_type = row[DF_COLUMN_FORM_TYPE]
+        input_xml_directory = msg['input_xml_directory']
+        accession = self.get_accession_from_xbrl_filepath(filepath)
+        logging.info(
+            "get_financial_statements(): processing CIK[%s], accession[%18s] "
+            "form[%s] year[%s] qtr[%s] file[%s]" %
+            (cik, accession, form_type, year, qtr, os.path.basename(filepath))
+        )
+
         # --------------------------------------------------------------------------------
         # Get XBRL XML as the source
         # --------------------------------------------------------------------------------
-        filepath = f"{msg['input_xml_directory']}{os.sep}{row[DF_COLUMN_FILEPATH]}"
-        xbrl = self.load_xbrl(filepath)
+        absolute_filepath = f"{input_xml_directory}{os.sep}{filepath}"
+        try:
+            xbrl = self.load_xbrl(absolute_filepath)
+        except RuntimeError as e:
+            logging.error(
+                "get_financial_statements(): failed to load XML[%s]. skipping "
+                "CIK[%s], accession[%18s] form[%s] year[%s] qtr[%s]." %
+                (cik, accession, form_type, year, qtr, os.path.basename(filepath))
+            )
+            return None
 
-        cik = row[DF_COLUMN_CIK]
-        form_type = row[DF_COLUMN_FORM_TYPE]
-        year = row[DF_COLUMN_YEAR]
-        qtr = row[DF_COLUMN_QTR]
-        logging.info(
-            "generate_financial_statement(): processing CIK[%7s], company[%40s], form[%s], year[%s], qtr[%s]" %
-            (cik, get_company_name(xbrl), form_type, year, qtr)
-        )
+        # --------------------------------------------------------------------------------
+        # Company (Registrant) name to verify if registrant element is in XBRL.
+        # If not, there is a good chance the XBRL format is not as expected.
+        # --------------------------------------------------------------------------------
+        company_name = get_company_name(xbrl)
+        if not company_name:
+            logging.error(
+                "get_financial_statements(): File[%s] CIK[%s] Accession[%s] "
+                "has no registrant name found" %
+                (os.path.basename(filepath), cik, accession)
+            )
 
         # --------------------------------------------------------------------------------
         # Retrieve XML element attributes to extract the target XBRL XML elements
@@ -313,39 +345,69 @@ class EdgarGAAP(EdgarBase):
         # Extract P/L (Income Statement) elements from the XBRL XML
         # --------------------------------------------------------------------------------
         pl = self.get_PL(xbrl=xbrl, attributes=attributes)
-        assert len(pl) > 0, \
-            "No PL element found for CIK[%s] Year[%s] QTR[%s]" % \
-            (cik, year, qtr)
-        logging.debug("generate_financial_statement(): First row of the P/L:\n[%s]" % pl[0])
+        if pl is None or len(pl) <= 0:
+            logging.info(
+                "get_financial_statements(): skipping CIK[%s], accession[%18s] "
+                "form[%s] year[%s] qtr[%s] file[%s] as no PL element found" %
+                (cik, accession, form_type, year, qtr, os.path.basename(filepath))
+            )
+            return None
+
+        logging.debug("get_financial_statements(): First row of the P/L:\n[%s]" % pl[0])
 
         # --------------------------------------------------------------------------------
         # Extract B/S elements from the XBRL XML
         # --------------------------------------------------------------------------------
         bs = self.get_BS(xbrl=xbrl, attributes=attributes)
-        assert len(bs) > 0, \
-            "No BS element found for CIK[%s] Year[%s] QTR[%s]" % \
-            (cik, year, qtr)
+        if bs is None or len(bs) <= 0:
+            logging.info(
+                "get_financial_statements(): skipping CIK[%s], accession[%18s] "
+                "form[%s] year[%s] qtr[%s] file[%s] as no BS element found" %
+                (cik, accession, form_type, year, qtr, os.path.basename(filepath))
+            )
+            return None
 
-        logging.debug("generate_financial_statement(): First row of the B/S:\n[%s]" % bs[0])
+        logging.debug("get_financial_statements(): First row of the B/S:\n[%s]" % bs[0])
 
         del xbrl
-        accession = self.get_accession_from_xbrl_filepath(filepath)
         fs = self.prepend_columns(pl + bs, [cik, accession, form_type])
         return fs
 
+    def get_nil_financial_statement(self, msg: dict, row) -> List[List[str]]:
+        """Generate a NIL financial statement elements
+        Args:
+            msg: message
+            row: |CIK|Form Type|Year|Quarter|Filepath|
+        Returns:
+            List of FS records with the format:
+            |CIK|Accession|Form Type|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        """
+        filepath = row[DF_COLUMN_FILEPATH]
+        if not (isinstance(filepath, str) and len(filepath) > 0):
+            accession = "NA"
+        else:
+            accession = self.get_accession_from_xbrl_filepath(filepath)
+        cik = row[DF_COLUMN_CIK]
+        form_type = row[DF_COLUMN_FORM_TYPE]
+
+        return [
+            [cik, accession, form_type, "NA", "NA", "NO FS ELEMENT FOUND", "-1", "NA", "0", "NA"]
+        ]
+
     @staticmethod
-    def create_df_FS(financial_statements: List[List[str]], year: str, qtr: str):
+    def create_df_FS(filings: List[List[str]], year: str, qtr: str):
         """Generate the dataframe for the financial statements
-        Record in financial_statements should have the format
-        |CIK|Accession|Form_type|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
+        Record in filings should have the format
+        |CIK|Accession|Form_type|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
 
         Args:
-            financial_statements: list of FS records
+            filings: list of FS records
             year: report year
             qtr: report quarter
-        Returns: Dataframe of the financial statement records
+        Returns: Dataframe of the financial statement records in the format
+                |CIK|Accession|Form_type|Year|Quarter|FS|Rep|Type|Name|Value|Unit|Decimals|Context|
         """
-        num_rows = len(financial_statements)
+        num_rows = len(filings)
 
         # --------------------------------------------------------------------------------
         # Build columns for dataframe
@@ -363,7 +425,7 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         # Create dataframe + convert categorical
         # --------------------------------------------------------------------------------
-        df_FS: pd.DataFrame = pd.DataFrame(financial_statements, columns=columns)
+        df_FS: pd.DataFrame = pd.DataFrame(filings, columns=columns)
         df_FS[DF_COLUMN_FORM_TYPE] = df_FS[DF_COLUMN_FORM_TYPE].astype('category')
 
         # --------------------------------------------------------------------------------
@@ -381,7 +443,10 @@ class EdgarGAAP(EdgarBase):
             value=pd.Categorical([int(qtr)]*num_rows)
         )
 
-        logging.debug("create_df_FS(): df_FS[:5]:\n %s", df_FS.head(5))
+        logging.debug(
+            "create_df_FS(): showing the first rows of df_FS created:\n[%s]" %
+            df_FS.head(3)
+        )
         return df_FS
 
     @ray.remote(num_returns=1)
@@ -423,14 +488,14 @@ class EdgarGAAP(EdgarBase):
 
         # --------------------------------------------------------------------------------
         #  Logging setup for Ray as in https://docs.ray.io/en/master/ray-logging.html.
-        #  In Ray, all of the tasks and actors are executed remotely in the worker processes.
+        #  In Ray, all the tasks and actors are executed remotely in the worker processes.
         #  Since Python logger module creates a singleton logger per process, loggers should
         #  be configured on per task/actor basis.
         # --------------------------------------------------------------------------------
         logging.basicConfig(level=log_level)
-        logging.debug("worker(): task size is %s" % len(df))
+        logging.debug("worker(): starting with the task size is [%s]." % len(df))
         logging.debug(
-            "worker(): Sampling 3 rows from DF received for year[%s] qtr[%s]:\n%s"
+            "worker(): showing the first rows from DF received for year[%s] qtr[%s]:\n[%s]"
             % (year, qtr, df.head(3))
         )
 
@@ -438,29 +503,31 @@ class EdgarGAAP(EdgarBase):
         # Drop irrelevant columns
         # --------------------------------------------------------------------------------
         columns_to_drop = [DF_COLUMN_COMPANY, DF_COLUMN_DATE_FILED, DF_COLUMN_FILENAME]
-        assert set(columns_to_drop).issubset(set(df.columns))
+        assert set(columns_to_drop).issubset(set(df.columns)), \
+            "Invalid column included in %s" % columns_to_drop
         df.drop(columns_to_drop, axis=1, inplace=True)
 
         # --------------------------------------------------------------------------------
-        # Generate financial statements from XBRL XML
+        # Get financial statements from a XBRL XML of each filing submission.
+        # A company submits a filing that includes multiple statements e.g. BS, PL, CF.
+        # From each filing (XBRL XML), get those statements and aggregate them.
         # --------------------------------------------------------------------------------
-        financial_statements = []
+        filings = []  # List of SEC EDGAR filings
         for index, row in df.iterrows():
-            if not row[DF_COLUMN_FILEPATH]:
-                logging.error(
-                    "Skipping CIK[%s] Year[%s] Qtr[%s] as no 'Filepath in row: \n[%s]" %
-                    (row[DF_COLUMN_CIK], row[DF_COLUMN_YEAR], row[DF_COLUMN_QTR], row)
-                )
-                continue
-
             self.validate_year_qtr(row=row, year=year, qtr=qtr)
-            fs = self.generate_financial_statement(msg, row)
-            financial_statements.extend(fs)
+            statements = self.get_financial_statements(msg, row)
+            if not statements:
+                logging.error("worker(): no FS element found for row:\n[%s]" % row)
+                statements = self.get_nil_financial_statement(msg, row)
+
+            filings.extend(statements)
+
+        assert isinstance(filings, list) and len(filings) > 0, "Must have rows."
 
         # --------------------------------------------------------------------------------
         # Generate dataframe of financial statements.
         # --------------------------------------------------------------------------------
-        return self.create_df_FS(financial_statements, year=year, qtr=qtr)
+        return self.create_df_FS(filings, year=year, qtr=qtr)
 
     @staticmethod
     def compose_package_to_dispatch_to_worker(msg: dict, task: pd.DataFrame):
