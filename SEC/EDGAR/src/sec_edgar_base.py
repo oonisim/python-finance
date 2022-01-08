@@ -147,6 +147,7 @@ class EdgarBase:
         self.output_csv_directory = args['output_csv_directory']
         self.output_csv_suffix = args['output_csv_suffix']
         self.output_xml_directory = args['output_xml_directory']
+        self.output_xml_suffix = args['output_xml_suffix']
         # Filing filter
         self.year = str(args['year']) if args['year'] else None
         self.qtr = str(args['qtr']) if args['qtr'] else None
@@ -201,7 +202,7 @@ class EdgarBase:
 
     @staticmethod
     def output_xml_suffix_default():
-        raise NotImplementedError("TBD")
+        return ".gz"
 
     def get_command_line_arguments(self):
         """Get configurable parameters from the command line"""
@@ -231,7 +232,7 @@ class EdgarBase:
             help='specify the output data directory to save the csv file (not xml)'
         )
         parser.add_argument(
-            '-os', '--output-csv-suffix', type=str, required=False,
+            '-ocs', '--output-csv-suffix', type=str, required=False,
             default=self.output_csv_suffix_default(),
             help=f'specify the output csv filename suffix e.g {self.output_csv_suffix_default()}'
         )
@@ -239,6 +240,11 @@ class EdgarBase:
             '-ox', '--output-xml-directory', type=str, required=False,
             default=self.output_xml_directory_default(),
             help='specify the output data directory to save the xml file (not csv)'
+        )
+        parser.add_argument(
+            '-oxs', '--output-xml-suffix', type=str, required=False,
+            default=self.output_xml_suffix_default(),
+            help=f'specify the output xml filename suffix e.g {self.output_xml_suffix_default()}'
         )
         # --------------------------------------------------------------------------------
         # SEC Filing filter

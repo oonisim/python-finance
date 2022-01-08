@@ -73,7 +73,7 @@ class EdgarXBRL(EdgarBase):
         Returns: Absolute file path
         """
         assert not directory.startswith(os.sep), "Must be relative directory path"
-        relative = f"{directory}{os.sep}{basename}{self.output_xml_suffix_default()}"
+        relative = f"{directory}{os.sep}{basename}{self.output_xml_suffix}"
         return relative
 
     def xml_absolute_path_to_save(self, output_xml_directory: str, directory: str, basename: str):
@@ -223,7 +223,7 @@ class EdgarXBRL(EdgarBase):
             # Download XBRL XML
             # --------------------------------------------------------------------------------
             url = row['Filename']
-            content = self.get_xml(url)
+            content = EdgarXBRL.get_xml(url)
 
             if content:
                 # --------------------------------------------------------------------------------

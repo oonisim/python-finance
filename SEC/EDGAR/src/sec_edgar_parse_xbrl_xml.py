@@ -206,7 +206,8 @@ class EdgarGAAP(EdgarBase):
             raise RuntimeError("load_from_xml()") from e
         return content
 
-    def load_xbrl(self, filepath: str):
+    @staticmethod
+    def load_xbrl(filepath: str):
         """Load the XBRL XML as BS4
         Using HTML parser because:
 
@@ -219,7 +220,7 @@ class EdgarGAAP(EdgarBase):
         in case in-sensitive manner. Namespaced tags e.g. us-gaap:revenue
         is regarded as a single tag.
         """
-        xml = self.load_from_xml(filepath)
+        xml = EdgarGAAP.load_from_xml(filepath)
         source = BeautifulSoup(xml, 'html.parser')
         del xml
         return source
@@ -277,7 +278,8 @@ class EdgarGAAP(EdgarBase):
         logging.debug("prepend_columns(): First row of FS:\n[%s]" % fs[0])
         return fs
 
-    def get_financial_statements(self, msg: dict, row) -> Optional[List[List[str]]]:
+    @staticmethod
+    def get_financial_statements(msg: dict, row) -> Optional[List[List[str]]]:
         """Generate a list of financial statement elements from a filing
         Args:
             msg: message
@@ -299,7 +301,7 @@ class EdgarGAAP(EdgarBase):
 
         form_type = row[DF_COLUMN_FORM_TYPE]
         input_xml_directory = msg['input_xml_directory']
-        accession = self.get_accession_from_xbrl_filepath(filepath)
+        accession = EdgarGAAP.get_accession_from_xbrl_filepath(filepath)
         logging.info(
             "get_financial_statements(): processing CIK[%s], accession[%18s] "
             "form[%s] year[%s] qtr[%s] file[%s]" %
@@ -311,7 +313,7 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         absolute_filepath = f"{input_xml_directory}{os.sep}{filepath}"
         try:
-            xbrl = self.load_xbrl(absolute_filepath)
+            xbrl = EdgarGAAP.load_xbrl(absolute_filepath)
         except RuntimeError as e:
             logging.error(
                 "get_financial_statements(): failed to load XML[%s]. skipping "
@@ -344,7 +346,7 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         # Extract P/L (Income Statement) elements from the XBRL XML
         # --------------------------------------------------------------------------------
-        pl = self.get_PL(xbrl=xbrl, attributes=attributes)
+        pl = EdgarGAAP.get_PL(xbrl=xbrl, attributes=attributes)
         if pl is None or len(pl) <= 0:
             logging.info(
                 "get_financial_statements(): skipping CIK[%s], accession[%18s] "
@@ -358,7 +360,7 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         # Extract B/S elements from the XBRL XML
         # --------------------------------------------------------------------------------
-        bs = self.get_BS(xbrl=xbrl, attributes=attributes)
+        bs = EdgarGAAP.get_BS(xbrl=xbrl, attributes=attributes)
         if bs is None or len(bs) <= 0:
             logging.info(
                 "get_financial_statements(): skipping CIK[%s], accession[%18s] "
@@ -370,10 +372,11 @@ class EdgarGAAP(EdgarBase):
         logging.debug("get_financial_statements(): First row of the B/S:\n[%s]" % bs[0])
 
         del xbrl
-        fs = self.prepend_columns(pl + bs, [cik, accession, form_type])
+        fs = EdgarGAAP.prepend_columns(pl + bs, [cik, accession, form_type])
         return fs
 
-    def get_nil_financial_statement(self, msg: dict, row) -> List[List[str]]:
+    @staticmethod
+    def get_nil_financial_statement(msg: dict, row) -> List[List[str]]:
         """Generate a NIL financial statement elements
         Args:
             msg: message
@@ -386,7 +389,7 @@ class EdgarGAAP(EdgarBase):
         if not (isinstance(filepath, str) and len(filepath) > 0):
             accession = "NA"
         else:
-            accession = self.get_accession_from_xbrl_filepath(filepath)
+            accession = EdgarGAAP.get_accession_from_xbrl_filepath(filepath)
         cik = row[DF_COLUMN_CIK]
         form_type = row[DF_COLUMN_FORM_TYPE]
 
@@ -515,11 +518,11 @@ class EdgarGAAP(EdgarBase):
         filings = []  # List of SEC EDGAR filings
         for index, row in df.iterrows():
             try:
-                self.validate_year_qtr(row=row, year=year, qtr=qtr)
-                statements = self.get_financial_statements(msg, row)
+                EdgarGAAP.validate_year_qtr(row=row, year=year, qtr=qtr)
+                statements = EdgarGAAP.get_financial_statements(msg, row)
                 if not statements:
                     logging.error("worker(): no FS element found for row:\n[%s]" % row)
-                    statements = self.get_nil_financial_statement(msg, row)
+                    statements = EdgarGAAP.get_nil_financial_statement(msg, row)
 
                 filings.extend(statements)
             except RuntimeError as e:
@@ -531,7 +534,7 @@ class EdgarGAAP(EdgarBase):
         # --------------------------------------------------------------------------------
         # Generate dataframe of financial statements.
         # --------------------------------------------------------------------------------
-        return self.create_df_FS(filings, year=year, qtr=qtr)
+        return EdgarGAAP.create_df_FS(filings, year=year, qtr=qtr)
 
     @staticmethod
     def compose_package_to_dispatch_to_worker(msg: dict, task: pd.DataFrame):

@@ -260,7 +260,8 @@ class EdgarList(EdgarBase):
             )
             return None
 
-    def xbrl_url(self, index_xml_url: str):
+    @staticmethod
+    def xbrl_url(index_xml_url: str):
         """Generate the URL to the XBML file in the filing directory
         Args:
             index_xml_url:
@@ -312,7 +313,7 @@ class EdgarList(EdgarBase):
             # --------------------------------------------------------------------------------
             # "/Archives/edgar/data/{CIK}/{ACCESSION}/" part of the EDGAR filing URL
             # --------------------------------------------------------------------------------
-            directory = self.filing_directory_path(index_xml_url)
+            directory = EdgarList.filing_directory_path(index_xml_url)
 
             # --------------------------------------------------------------------------------
             # Look for the XBRL XML file in the index.xml.
@@ -321,17 +322,17 @@ class EdgarList(EdgarBase):
             # 3. <filename>.xml where "filename" is not RNN.xml e.g. R10.xml.
             # --------------------------------------------------------------------------------
             source = BeautifulSoup(content, 'html.parser')
-            url = self.find_xbrl_url_from_html_xml(source=source, directory=directory)
+            url = EdgarList.find_xbrl_url_from_html_xml(source=source, directory=directory)
             if url:
                 logging.info(f"XBRL URL identified [%s]" % url)
                 return url
 
-            url = self.find_xbrl_url_from_xsd(source=source, directory=directory)
+            url = EdgarList.find_xbrl_url_from_xsd(source=source, directory=directory)
             if url:
                 logging.info(f"XBRL URL identified [%s]" % url)
                 return url
 
-            url = self.find_xbrl_url_from_auxiliary_regexp(source=source, directory=directory)
+            url = EdgarList.find_xbrl_url_from_auxiliary_regexp(source=source, directory=directory)
             if url:
                 logging.info(f"XBRL URL identified [%s]" % url)
                 return url
@@ -365,7 +366,9 @@ class EdgarList(EdgarBase):
         # --------------------------------------------------------------------------------
         # Update the 'Filename' column with the URL to index.xml
         # --------------------------------------------------------------------------------
-        df.loc[:, 'Filename'] = df['Filename'].apply(lambda txt: self.xbrl_url(self.index_xml_url(txt)))
+        df.loc[:, 'Filename'] = df['Filename'].apply(
+            lambda txt: EdgarList.xbrl_url(EdgarList.index_xml_url(txt))
+        )
         return df
 
     @staticmethod
