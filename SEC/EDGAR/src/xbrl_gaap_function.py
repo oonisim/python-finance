@@ -39,6 +39,9 @@ from sec_edgar_constant import (
     FS_ELEMENT_REP_OPEX_SGA,
     FS_ELEMENT_REP_OPEX,
     FS_ELEMENT_REP_NET_INCOME,
+    FS_ELEMENT_REP_DIVIDEND,
+    FS_ELEMENT_REP_TAX,
+    FS_ELEMENT_REP_EPS,
     # BS
     FS_ELEMENT_REP_CASH,
     FS_ELEMENT_REP_CURRENT_ASSETS,
@@ -974,11 +977,23 @@ def get_pl_non_operating_expense_other(soup, attributes: dict):
 
 def get_pl_dividends(soup, attributes: dict):
     """Dividends"""
-    names = re.compile(
-        rf"{NAMESPACE_GAAP}:DistributedEarnings$", re.IGNORECASE
-    )
-    return get_records_for_financial_element_names(
-        soup=soup, names=names, attributes=attributes
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:DividendsCash$",
+        # Amount of cash outflow in the form of ordinary dividends to common
+        # shareholders of the parent entity.
+        rf"{NAMESPACE_GAAP}:PaymentsOfDividendsCommonStock$",
+        # The total amount of dividends declared in the period for each class
+        # of stock and the contractual amount of dividends
+        # (or interest on participating income bonds) that must be paid for
+        # the period
+        rf"{NAMESPACE_GAAP}:DistributedEarnings$",
+    ]), re.IGNORECASE)
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_PL,
+        rep=FS_ELEMENT_REP_DIVIDEND
     )
 
 
@@ -987,8 +1002,12 @@ def get_pl_income_tax(soup, attributes: dict):
     names = re.compile(
         f"{NAMESPACE_GAAP}:IncomeTaxExpenseBenefit$", re.IGNORECASE
     )
-    return get_records_for_financial_element_names(
-        soup=soup, names=names, attributes=attributes
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_PL,
+        rep=FS_ELEMENT_REP_TAX
     )
 
 
@@ -1028,10 +1047,12 @@ def get_pl_eps(soup, attributes: dict):
         rf"{NAMESPACE_GAAP}:EarningsPerShareBasic$",
         rf"{NAMESPACE_GAAP}:EarningsPerShareBasicAndDiluted$",
     ]), re.IGNORECASE)
-    return get_records_for_financial_element_names(
-        soup=soup,
-        names=names,
-        attributes=attributes
+    return represents(
+        get_records_for_financial_element_names(
+            soup=soup, names=names, attributes=attributes
+        ),
+        fs=FS_PL,
+        rep=FS_ELEMENT_REP_EPS
     )
 
 

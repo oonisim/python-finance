@@ -57,6 +57,8 @@ FS_ELEMENT_REP_OPEX_RD = "operating_expense_rd"    # R/D Expeense
 FS_ELEMENT_REP_OPEX_SGA = "operating_expense_sga"  # Sales and Administrative Expense
 FS_ELEMENT_REP_OPEX = "operating_expense"
 FS_ELEMENT_REP_NET_INCOME = "net_income"
+FS_ELEMENT_REP_DIVIDEND = "dividend"
+FS_ELEMENT_REP_TAX = "tax"
 FS_ELEMENT_REP_EPS = "eps"
 # BS
 FS_ELEMENT_REP_CASH = "cash_and_equivalent"

@@ -76,6 +76,8 @@ GAAP_DEBIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:OtherExpenses",
     f"{NAMESPACE_GAAP}:LaborAndRelatedExpense",
     f"{NAMESPACE_GAAP}:ProvisionForLoanLeaseAndOtherLosses",
+    f"{NAMESPACE_GAAP}:DividendsCash",
+    f"{NAMESPACE_GAAP}:PaymentsOfDividendsCommonStock",
     f"{NAMESPACE_GAAP}:DistributedEarnings",
 
     # B/S (Liabilities)
