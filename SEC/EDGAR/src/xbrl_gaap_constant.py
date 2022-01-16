@@ -34,6 +34,7 @@ GAAP_CREDIT_ITEMS = set(map(str.lower, [
     f"{NAMESPACE_GAAP}:InterestAndDividendIncomeOperating",
     f"{NAMESPACE_GAAP}:InvestmentIncomeInterestAndDividend",
     f"{NAMESPACE_GAAP}:InterestAndFeeIncomeLoansConsumerInstallmentAutomobilesMarineAndOtherVehicles",
+    f"{NAMESPACE_GAAP}:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
 
     # B/S (Assets)
     f"{NAMESPACE_GAAP}:RestrictedCashAndCashEquivalentsNoncurrent",

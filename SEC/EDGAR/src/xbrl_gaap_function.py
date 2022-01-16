@@ -858,7 +858,10 @@ def get_pl_cost_of_revenues(soup, attributes: dict):
 
 
 def get_pl_gross_profit(soup, attributes: dict):
-    names = re.compile(f"{NAMESPACE_GAAP}:GrossProfit$", re.IGNORECASE)
+    names = re.compile("|".join([
+        rf"{NAMESPACE_GAAP}:GrossProfit",
+        rf"{NAMESPACE_GAAP}:IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments$",
+    ]), re.IGNORECASE)
     return represents(
         get_records_for_financial_element_names(soup=soup, names=names, attributes=attributes),
         fs=FS_PL,
