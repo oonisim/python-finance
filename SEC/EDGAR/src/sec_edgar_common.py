@@ -25,7 +25,7 @@ def is_date_string(x):
     try:
         dateutil.parser.parse(x)
         return True
-    except ValueError as e:
+    except ValueError:
         return False
 
 
@@ -40,29 +40,30 @@ def is_int_string(x: str):
         f = i_f[1]         # fraction part
         return (
             # Integer part
-                (
-                        i.lstrip('-').isdigit() or         # 123, -123
-                        len(i.lstrip('-')) == 0            # i part of ".0" or "-.0"
-                )
-                and
-                # Fraction part
-                (
-                        (f.isdigit() and int(f) == 0) or   # 123.0, 123.00
-                        len(f) == 0                        # 123.
-                )
+            (
+                    i.lstrip('-').isdigit() or         # 123, -123
+                    len(i.lstrip('-')) == 0            # i part of ".0" or "-.0"
+            )
+            and
+            # Fraction part
+            (
+                    (f.isdigit() and int(f) == 0) or   # 123.0, 123.00
+                    len(f) == 0                        # 123.
+            )
         )
     else:
         return x.lstrip('-').isdigit()
 
 
 def sort_list_of_records_at_nth_element(
-        x: List[List[Any]], position: int, f: Callable = lambda x: x, reverse=False
+        x: List[List[Any]], position: int, f: Callable = lambda x: x, reverse: bool = False
 ) -> List[List[Any]]:
     """Sort a list of records (record is another list) with i-th element of the record
     Args:
         x: List of records
         position: i-th position in the record to sort with
         f: function to convert the n-th element
+        reverse: flag to reverse sort
     """
     assert isinstance(x, list) and len(x) > 0 and isinstance(x[0], list), "Invalid x"
     assert 0 <= position < len(x[0]), \
@@ -99,17 +100,17 @@ def split(tasks: pd.DataFrame, num: int):
     # Left over after each assignment takes its 'quota'
     residual = total % num
 
-    start = 0
+    start: int = 0
     while start < total:
-        # As long as residual is there, each assginemt has (quota + 1) as its tasks.
+        # As long as residual is there, each assignment has (quota + 1) as its tasks.
         if residual > 0:
             size = quota + 1
             residual -= 1
         else:
             size = quota
 
-        end = start + size
-        yield tasks[start : min(end, total)]
+        end: int = start + size
+        yield tasks[start: min(end, total)]
 
         start = end
         end += size
@@ -119,6 +120,7 @@ def http_get_content(url, headers):
     """HTTP GET URL content
     Args:
         url: URL to GET
+        headers: HTTP headers to set to the request
     Returns:
         Content of the HTTP GET response body, or None
     Raises:
@@ -154,7 +156,7 @@ def list_csv_files(
         input_csv_directory,
         input_filename_pattern,
         f_output_filepath_for_input_filepath
-    ):
+):
     """List files in the directory that are to be processed.
     When year is specified, only matching listing files for the year will be selected.
     When qtr is specified, only matching listing files for the quarter will be selected.
