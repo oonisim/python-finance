@@ -47,7 +47,7 @@ def split(tasks: pd.DataFrame, num: int):
             size = quota
 
         end = start + size
-        yield tasks[start : min(end, total)]
+        yield tasks[start: min(end, total)]
 
         start = end
         end += size
@@ -57,6 +57,7 @@ def http_get_content(url, headers):
     """HTTP GET URL content
     Args:
         url: URL to GET
+        headers: HTTP headers to set to the request
     Returns:
         Content of the HTTP GET response body, or None
     Raises:
@@ -107,17 +108,17 @@ def list_csv_files(
         input_csv_directory,
         input_filename_pattern,
         f_output_filepath_for_input_filepath
-    ):
+):
     """List files in the directory
     When year is specified, only matching listing files for the year will be selected.
-    When qtr is specified, only match8ng listing files for the quarter will be selected.
+    When qtr is specified, only matching listing files for the quarter will be selected.
 
     Args:
         input_csv_directory: path to the directory from where to get the file
         input_filename_pattern: glob pattern to list the input files.
         f_output_filepath_for_input_filepath: function to generate the output filepath.
 
-    Returns: List of flies to purocess
+    Returns: List of flies to process
     """
     assert os.path.isdir(input_csv_directory), f"Not a directory or does not exist: {input_csv_directory}"
 

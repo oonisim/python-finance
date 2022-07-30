@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-## Objective
+# Objective
 Navigate through the EDGAR XBRL listings to generate the URLs to XBRL XML files.
 """
 # ================================================================================
@@ -78,7 +78,7 @@ class EdgarList(EdgarBase):
     @staticmethod
     def index_xml_url(filename):
         """
-        Generate the URL to the EDGAR directory listing index.xml file in the format
+        Generate the URL for the EDGAR directory listing index.xml file with the format
         'https://sec.gov/Archives/edgar/data/{CIK}/{ACCESSION}/index.xml' from the
         directory path to the XBRL TXT file specified in the EDGAR XBRL index CSV.
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-"""Navigate through the EDGAR XBRL listings to generate the URLs to XBRL XML files.
+"""
+Navigate through the EDGAR XBRL listings CSV file in DIR_DATA_CSV_LIST and
+generate the URLs to XBRL XML files.
 """
 import gzip
 import logging
@@ -173,11 +175,12 @@ class EdgarXBRL(EdgarBase):
         Alternatively make the remote method as static, however you cannot access
         instance/class members.
 
-        1. GET XBRL XML from the filing directory and save to a file.
+        1. GET XBRL XML from the filing URL and save to an XML file in DIR_DATA_XML_XBRL.
         2. Update the listing dataframe with the year, qtr, path to the saved XBRL XML.
-           Set None to the path column when failed to get the XBRL XML.
+           Set None to the path column when failed to get the XBRL XML. The listing
+           dataframe will be saved to <YYYY>QTR<QTR>_XBRL.gz in DIR_DATA_CSV_XBRL.
 
-        The incoming dataframe has the format:
+        The incoming dataframe msg["data"] has the format:
         |CIK|Company Name|Form Type|Date Filed|Filename|
 
         'Filename' is the URL to XBRL XML in the filing directory with the format:

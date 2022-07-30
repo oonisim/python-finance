@@ -18,7 +18,7 @@ financial data.
 * [Accessing EDGAR Data](https://www.sec.gov/os/accessing-edgar-data)
 
 > Using the EDGAR index files
-Indexes to all public filings are available from 1994Q3 through the present and
+Indices to all public filings are available from 1994Q3 through the present and
 located in the following browsable directories:
 > * https://www.sec.gov/Archives/edgar/daily-index/
 > — daily index files through the current year; (**DO NOT forget the trailing slash '/'**)
@@ -39,9 +39,10 @@ located in the following browsable directories:
 > * company — sorted by company name
 > * form — sorted by form type
 > * master — sorted by CIK number
-> * **XBRL** — list of submissions containing XBRL financial files, sorted by CIK number; these include Voluntary Filer Program submissions
+> * **XBRL** — list of submissions containing XBRL financial files, sorted by CIK number;
+> these include Voluntary Filer Program submissions
 >
-> The EDGAR indexes list the following information for each filing:
+> The EDGAR indices list the following information for each filing:
 > * company name
 > * form type
 > * central index key (CIK)
@@ -94,13 +95,20 @@ ${DIR_DATA}
             +-- <ACCESSION>
                 +-- <XBRL>.gz       <--- SEC filing XBRL XML file for the CIK and ACCESSION.
 
-1. Download master index file for XBRL for each YYYY/QTR.
-   The result is <YYYY>QTR<QTR>. See the shell script.
-2. Iterate through <YYYY>QTR<QTR> index file to identify the URL to XBRL XML.
-   The result is <YYYY>QTR<QTR>_LIST.gz.
-3. Iterate through <YYYY>QTR<QTR>_LIST.gz to download XBRL XML for CIK/ACCESSION
-   and record the local file path to the files.
-   The result is <YYYY>QTR<QTR>_XBRL.gz and an XML file in <CIK/<ACCESSION>/.
+--------------------------------------------------------------------------------
+Executions
+--------------------------------------------------------------------------------
+1. sec_edgar_download_xbrl_indices.sh downloads the master index file for XBRL
+   for each YYYY/QTR. The result is csv/index/<YYYY>QTR<QTR>.
+2. sec_edgar_list_xbrl_xml.py iterates through csv/index/<YYYY>QTR<QTR> index files
+   to identify the URLs to XBRL XML files of SEC filings.
+   The result is csv/listing/<YYYY>QTR<QTR>_LIST.gz.
+3. sec_edgar_download_xbrl_xml.py iterates through csv/listing/<YYYY>QTR<QTR>_LIST.gz
+   and download XBRL XML filing for CIK/ACCESSION. CIK/ACCESSION identifies the filing
+   e.g. 10K for a specific YEAR or 10Q for a specific YEAR/QTR of a company.
+   The results are:
+   3-1: csv/xbrl/<YYYY>QTR<QTR>_XBRL.gz and (DIR_DATA_CSV_XBRL=csv/xbrl/)
+   3-2: xml/xbrl/<CIK/<ACCESSION>/<XBRL>.gz (DIR_DATA_XML_XBRL=xml/xbrl/)
 """
 import argparse
 import logging
@@ -141,14 +149,14 @@ class EdgarBase:
         args = self.get_command_line_arguments()
         self.args = args
 
-        # SEC Filing filter
+        # SEC Filing path
         self.input_csv_directory = args['input_csv_directory']
         self.input_csv_suffix = args['input_csv_suffix']
         self.output_csv_directory = args['output_csv_directory']
         self.output_csv_suffix = args['output_csv_suffix']
         self.output_xml_directory = args['output_xml_directory']
         self.output_xml_suffix = args['output_xml_suffix']
-        # Filing filter
+        # Filing filter based on year, quarter, and filing type e.g. 10K
         self.year = str(args['year']) if args['year'] else None
         self.qtr = str(args['qtr']) if args['qtr'] else None
         self.form_types = str(args['form_types'])
@@ -297,7 +305,8 @@ class EdgarBase:
         args['output_csv_directory'] = os.path.realpath(args['output_csv_directory'])
         args['output_xml_directory'] = os.path.realpath(args['output_xml_directory']) \
             if args['output_xml_directory'] else None
-        assert os.path.isdir(args['input_csv_directory'])
+        assert os.path.isdir(args['input_csv_directory']), \
+            f"the dir {args['input_csv_directory']} does not exists."
         # Valid output directory (cannot check until the directory is created)
         # assert os.path.isdir(args['output_csv_directory'])
         # Valid output directory (cannot check until the directory is created)
@@ -391,6 +400,7 @@ class EdgarBase:
     @ray.remote(num_returns=1)
     def worker(self, msg: dict) -> pd.DataFrame:
         """Worker task to execute based on the instruction message
+        To be implemented in the child class.
         Args:
             msg: task instruction message
         """
@@ -439,7 +449,12 @@ class EdgarBase:
         raise NotImplementedError("TBD")
 
     def director(self, msg: dict):
-        """Director to dispatch jobs
+        """Director to dispatch a job to the concreate builder instance.
+        Using the Builder and Template design patterns.
+        The child class implements the concrete builder to execute a specific job.
+        The base class invokes the dispatch method in the child class instance which
+        execute the job. Using Ray to scale out the execution.
+
         Args:
             msg: message to handle
         Returns: Pandas dataframe of failed records
@@ -450,7 +465,7 @@ class EdgarBase:
         num_workers = msg['num_workers']
 
         # --------------------------------------------------------------------------------
-        # Dispatch jobs
+        # Dispatch jobs to the logic implemented in the child class instance.
         # --------------------------------------------------------------------------------
         futures = self.dispatch(msg)
 
@@ -515,7 +530,7 @@ class EdgarBase:
                 # --------------------------------------------------------------------------------
                 # Year/Quarter of the filing from the filename
                 # --------------------------------------------------------------------------------
-                match = re.search("^([1-2][0-9]{3})QTR([1-4]).*$", filename, re.IGNORECASE)
+                match = re.search(r"^([1-2]\d{3})QTR([1-4]).*$", filename, re.IGNORECASE)
                 assert len(match.groups()) == len(["year", "qtr"]), \
                     "Insufficient matches: expected %s got %s in %s" % \
                     (len(["year", "qtr"]), len(match.groups()), filename)

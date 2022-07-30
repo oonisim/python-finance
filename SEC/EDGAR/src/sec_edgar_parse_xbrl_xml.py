@@ -470,11 +470,11 @@ class EdgarGAAP(EdgarBase):
     def worker(self, msg: dict) -> pd.DataFrame:
         """
         1. Load XBRL XML content.
-        2. Parse the XML to extract Financial Statement (FS) elements.
-        3. Create a dataframe.
+        2. Parse the XML to extract Financial Statement (FS) elements for a filing.
+        3. Create a dataframe for the FS.
 
-        The incoming dataframe has the format where 'Filepath' is the relative path
-        from the DIR_DATA_CSV_XML to XBRL XML
+        The incoming dataframe msg['data'] has the format below where 'Filepath' is
+        the relative path from the DIR_DATA_CSV_XML to XBRL XML
         |CIK|Company Name|Form Type|Date Filed|Year|Quarter|Filename|Filepath|
 
         [NOTE]: Need to pass "self" as worker.remote(self, msg) not worker.remote(msg).
