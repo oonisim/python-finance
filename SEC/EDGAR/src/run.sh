@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #--------------------------------------------------------------------------------
-#
+# Process SEC/EDGAR XBRL filings.
+# 1. Download master index files for XBRL filings.
+# 2. Download XBRL XML files.
+# 3. Parse XBRL XML files to generate BS/PL statements.
 #--------------------------------------------------------------------------------
 set -e
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -47,3 +50,6 @@ do
 
     YEAR=$((${YEAR}+1))
 done
+
+# copy generated data to the bucket
+# aws s3 sync ../data/ $S3_URL
