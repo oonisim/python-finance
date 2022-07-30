@@ -40,7 +40,7 @@ do
     echo "--------------------------------------------------------------------------------"
     echo "Handling the XBRL index files for the year ${YEAR}..."
     # Download master index files for XBRL filings.
-    sec_edgar_download_xbrl_indices.sh ${YEAR}
+    ./sec_edgar_download_xbrl_indices.sh ${YEAR}
     python3 sec_edgar_list_xbrl_xml.py y   -y ${YEAR}
     python3 sec_edgar_download_xbrl_xml.py -y ${YEAR}
     python3 sec_edgar_parse_xbrl_xml.py    -y ${YEAR}
