@@ -1,7 +1,7 @@
 
 
 
-# Executions
+# Execution overview
 ## 1. sec_edgar_download_xbrl_indices.sh
 
 ```sec_edgar_download_xbrl_indices.sh``` downloads the master index files for filings in the XBRL format. 
@@ -50,3 +50,17 @@ The format of ```<YYYY>QTR<QTR>_XBRL.csv``` in DIR_DATA_CSV_XBRL:
 ```sec_edgar_parse_xbrl_xml.py``` parse each XBRL XML file and generate a CSV file for the financial statement 
 for ```/<CIK>/<ACCESSION>``` SEC filing of the companies.
 
+---
+
+# Execution steps
+
+## Process single quarter
+```
+YEAR=2022
+QTR=1
+
+sec_edgar_download_xbrl_indices.sh ${YEAR}
+python3 sec_edgar_list_xbrl_xml.py     -y ${YEAR} -q ${QTR}
+python3 sec_edgar_download_xbrl_xml.py -y ${YEAR} -q ${QTR}
+python3 sec_edgar_parse_xbrl_xml.py    -y ${YEAR} -q ${QTR}
+```

@@ -25,6 +25,13 @@
 #
 #--------------------------------------------------------------------------------
 set -e
+if $# -lt 1 ; then
+  echo "Usage: $(basename -- "$0") <year>"
+  exit -1
+fi
+YEAR_START=$1
+YEAR_END=$(date "+%Y")
+
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd ${DIR}
 
@@ -33,8 +40,8 @@ mkdir -p ${DATA_DIR}
 
 
 EDGAR_MASTER_INDEX_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
-YEAR=2022
-while [ ${YEAR} -le 2022 ]
+YEAR=${YEAR_START}
+while [ ${YEAR} -le ${YEAR_END} ]
 do
     QTR=1
     while [ ${QTR} -le 4 ]
