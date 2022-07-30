@@ -42,7 +42,7 @@ mkdir -p ${DATA_DIR}
 EDGAR_MASTER_INDEX_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
 YEAR=${YEAR_START}
 # while [ ${YEAR} -le ${YEAR_END} ]
-while [ ${YEAR} -le ${YEAR} ]
+while [ ${YEAR} -le ${YEAR_START} ]
 do
     QTR=1
     while [ ${QTR} -le 4 ]
