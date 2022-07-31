@@ -79,7 +79,7 @@ def assert_bf4_tag(element):
 
 def display_elements(elements):
     assert isinstance(elements, bs4.element.ResultSet) or isinstance(elements[0], bs4.element.Tag)
-    for element in elements:  # decimals="-3" means the displayed value is divied by 1000.
+    for element in elements:  # decimals="-3" means the displayed value is divided by 1000.
         print(f"{element.name:80} {element['unitref']:5} {element['decimals']:5} {element.text:15}")
 
 
