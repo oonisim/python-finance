@@ -27,8 +27,8 @@ parse the TXT to extract each financial statement (FS).
 1. 10-K : Annual report
 2. 10-Q : Quarterly report
 
-<img src="../image/edgar_qorvo_2020_10K_CF.png" align="left" width="800"/>
-<br>
+![](../image/edgar_qorvo_2020_10K_CF.png)
+
 
 ---
 # Execution overview
