@@ -1,5 +1,7 @@
 # Master index file
 
+An index file is an CSV where each row identifies ```(CIK, Report form type, date, path)```.
+
 ```
 <YYYY>/<QTR>/xbrl.gz in https://www.sec.gov/Archives/edgar/full-index" is
 the master index file for the filings in XML format at each YYYY/QTR.
@@ -16,7 +18,19 @@ Each row points to the TXT file which is all-in-one file for the filing where
 each document is segmented with <DOCUMENT> tag. However, it is not easy to
 parse the TXT to extract each financial statement (FS).
 
+---
 
+# Financial report
+
+## Types of report forms
+
+1. 10-K : Annual report
+2. 10-Q : Quarterly report
+
+<img src="../image/edgar_qorvo_2020_10K_CF.png" align="left" width="800"/>
+<br>
+
+---
 # Execution overview
 
 <img src=../image/flow.png/>
