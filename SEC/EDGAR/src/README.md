@@ -1,7 +1,26 @@
+# Master index file
 
+```
+<YYYY>/<QTR>/xbrl.gz in https://www.sec.gov/Archives/edgar/full-index" is
+the master index file for the filings in XML format at each YYYY/QTR.
++-- <YYYY>
+    +-- <QTR>
+        +-- xbrl.gz
+
+The master index file is a CSV with the format:
+|CIK    |Company Name|Form Type|Filing Date|TXT Path                                   |
+|-------|------------|---------|-----------|-------------------------------------------|
+|1002047|NetApp, Inc.|10-Q     |2020-02-18 |edgar/data/1002047/0001564590-20-005025.txt|
+```
+Each row points to the TXT file which is all-in-one file for the filing where
+each document is segmented with <DOCUMENT> tag. However, it is not easy to
+parse the TXT to extract each financial statement (FS).
 
 
 # Execution overview
+
+<img src=../image/flow.png/>
+
 ## 1. sec_edgar_download_xbrl_indices.sh
 
 ```sec_edgar_download_xbrl_indices.sh``` downloads the master index files for filings in the XBRL format. 

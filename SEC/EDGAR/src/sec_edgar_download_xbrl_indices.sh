@@ -35,8 +35,9 @@ YEAR_END=$(date "+%Y")
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 cd ${DIR}
 
+mkdir -p "${DIR}/../data/csv/index"
 DATA_DIR=$(realpath ../data/csv/index)
-mkdir -p ${DATA_DIR}
+# mkdir -p ${DATA_DIR}
 
 
 EDGAR_MASTER_INDEX_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
