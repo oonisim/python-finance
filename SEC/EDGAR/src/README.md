@@ -85,7 +85,7 @@ for ```/<CIK>/<ACCESSION>``` SEC filing of the companies.
 
 ---
 
-# Execution steps
+# Execution steps (Local)
 
 ## Process single quarter
 ```
@@ -97,3 +97,16 @@ python3 sec_edgar_list_xbrl_xml.py     -y ${YEAR} -q ${QTR}
 python3 sec_edgar_download_xbrl_xml.py -y ${YEAR} -q ${QTR}
 python3 sec_edgar_parse_xbrl_xml.py    -y ${YEAR} -q ${QTR}
 ```
+
+## Upload to AWS S3
+
+```
+aws s3 sync ../data/ $S3_URL
+```
+
+---
+
+# Execution steps (AWS)
+
+1. Glue Crawler parses uploaded CSV files and generate Glue catalog database.
+2. Build queries in Athena to analyze the database.
