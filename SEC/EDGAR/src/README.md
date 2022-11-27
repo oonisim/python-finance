@@ -1,3 +1,12 @@
+# Objective
+
+Download and analyze all the financial reports of the publicly traded US companies.
+
+## Background
+
+It is requirement by SEC (US Security and Exchange Commission) to submit the quarterly and annual financial reports by the
+publicly traded US companies. They are all available in [SEC EDGAR](https://www.sec.gov/edgar).
+
 
 ---
 
