@@ -1,4 +1,22 @@
-# Master index file
+
+---
+
+# Financial report
+
+## Types of report forms
+
+1. 10-K : Annual report
+2. 10-Q : Quarterly report
+
+![](../image/edgar_qorvo_2020_10K_CF.png)
+
+
+---
+# Execution overview
+
+<img src=../image/flow.png/>
+
+## Master index file
 
 An index file is an CSV where each row identifies ```(CIK, Report form type, date, path)```.
 
@@ -17,23 +35,6 @@ The master index file is a CSV with the format:
 Each row points to the TXT file which is all-in-one file for the filing where
 each document is segmented with <DOCUMENT> tag. However, it is not easy to
 parse the TXT to extract each financial statement (FS).
-
----
-
-# Financial report
-
-## Types of report forms
-
-1. 10-K : Annual report
-2. 10-Q : Quarterly report
-
-![](../image/edgar_qorvo_2020_10K_CF.png)
-
-
----
-# Execution overview
-
-<img src=../image/flow.png/>
 
 ## 1. sec_edgar_download_xbrl_indices.sh
 
