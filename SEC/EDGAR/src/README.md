@@ -1,6 +1,9 @@
 # Objective
 
-Download and analyze all the financial reports of the publicly traded US companies.
+Download and analyze all the financial reports of the publicly traded US companies. For example, listing the companies 
+whose revenue, net income, and gross profit have constantly increased throughout year 2022.
+
+![](../image/athena_queries.png)
 
 ## Background
 
