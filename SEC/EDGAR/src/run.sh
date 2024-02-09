@@ -4,6 +4,10 @@
 # 1. Download master index files for XBRL filings.
 # 2. Download XBRL XML files.
 # 3. Parse XBRL XML files to generate BS/PL statements.
+#
+# Execution:
+# ./run.sh 2022   # from year 2022 up to now
+# ./run.sh 2022 2024  # from year 2022 to 2024
 #--------------------------------------------------------------------------------
 set -e
 DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -52,4 +56,9 @@ do
 done
 
 # copy generated data to the bucket
-# aws s3 sync ../data/ $S3_URL
+# Make sure to setup the AWS account key/credential for AWS CLI.
+# Set the region to us-east-1 or set AWS_DEFAULT_REGION.
+# [default]
+#   #region = us-east-1
+S3_URL="s3://oonisim-sec-edgar/"
+aws s3 sync ../data/ $S3_URL
