@@ -41,6 +41,8 @@ mkdir -p ${DATA_DIR}/csv/{index,listing,xbrl}
 chmod u+x sec_edgar_download_xbrl_indices.sh
 EDGAR_MASTER_INDEX_BASE_URL="https://www.sec.gov/Archives/edgar/full-index"
 YEAR=${YEAR_START}
+
+ray start --include-dashboard=True --head
 while [ ${YEAR} -le ${YEAR_END} ]
 do
     echo ""
